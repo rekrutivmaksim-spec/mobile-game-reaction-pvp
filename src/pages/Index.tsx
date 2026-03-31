@@ -67,6 +67,7 @@ interface MatchResult {
   ratingChange: number;
   coinsEarned: number;
   newStreak: number;
+  streakLost?: number;
   percentBetter?: number;
   rank?: number;
   prevLeagueId?: string;
@@ -85,7 +86,12 @@ interface LeaderboardEntry {
 }
 
 // ─────────────── BOT LOGIC ───────────────
-function getBotReactionTime(): number {
+// isNewbie: true для первых 3 матчей — бот заметно медленнее, шанс выиграть выше
+function getBotReactionTime(isNewbie = false): number {
+  if (isNewbie) {
+    // Бот 280–420 мс, никогда не делает фальстарт
+    return 280 + Math.random() * 140;
+  }
   const base = 200 + Math.random() * 150;
   return Math.random() < 0.05 ? -1 : base;
 }
@@ -147,6 +153,9 @@ export default function Index() {
   // Save progress prompt (мягкая регистрация — пока только ник)
   const [savePrompt, setSavePrompt] = useState(false);
 
+  // Challenges timer
+  const [challengeTimer, setChallengeTimer] = useState("");
+
   // Shop
   const [shopItems, setShopItems] = useState<ShopItem[]>([]);
   const [shopInventory, setShopInventory] = useState<Record<string, { quantity: number; equipped: boolean }>>({});
@@ -175,6 +184,15 @@ export default function Index() {
         .then(r => r.json())
         .then(d => {
           if (d.player) setPlayer(d.player);
+          if (d.percent_better !== undefined) {
+            setProfileData({
+              avg_reaction: d.avg_reaction,
+              winrate: d.winrate ?? 0,
+              percent_better: d.percent_better,
+              rank: d.rank,
+              total_players: d.total_players,
+            });
+          }
         })
         .catch(() => {});
     } else {
@@ -288,6 +306,7 @@ export default function Index() {
     const isWin = type === "win";
     const ratingDelta = isWin ? 25 : -15;
     const currentStreak = curPlayer?.streak ?? 0;
+    const streakLost = !isWin && currentStreak >= 2 ? currentStreak : undefined;
     const newStreak = isWin ? currentStreak + 1 : 0;
     const streakBonus = newStreak >= 5 ? 2 : 1;
     const coins_earned = (isWin ? 20 : 5) * streakBonus;
@@ -329,6 +348,7 @@ export default function Index() {
       ratingChange: ratingDelta,
       coinsEarned: coins_earned,
       newStreak,
+      streakLost,
       prevLeagueId: prevLeague.id,
       newLeagueId: newLeague.id,
       pressureMsg: pressureMsg ?? undefined,
@@ -387,8 +407,11 @@ export default function Index() {
       setScreenFlash("none");
       gameActiveRef.current = true;
 
+      const totalPlayed = (playerRef.current?.wins ?? 0) + (playerRef.current?.losses ?? 0);
+      const isNewbie = totalPlayed < 3;
+
       const delay = getSignalDelay();
-      runTensionEffects(delay);
+      runTensionEffects(isNewbie ? 0 : delay); // новичкам без фейков в первом матче
 
       mainTimerRef.current = setTimeout(() => {
         if (!gameActiveRef.current) return;
@@ -397,7 +420,7 @@ export default function Index() {
         phaseRef.current = "action";
         setScreenFlash("green");
 
-        const botTime = getBotReactionTime();
+        const botTime = getBotReactionTime(isNewbie);
         if (botTime === -1) {
           setTimeout(() => {
             if (gameActiveRef.current) finishMatch("win", 999, -1, playerRef.current);
@@ -408,7 +431,7 @@ export default function Index() {
           }, botTime);
         }
         setTimeout(() => {
-          if (gameActiveRef.current) finishMatch("lose", 5000, getBotReactionTime(), playerRef.current);
+          if (gameActiveRef.current) finishMatch("lose", 5000, getBotReactionTime(isNewbie), playerRef.current);
         }, 3000);
       }, delay);
     }, 1200 + Math.random() * 800);
@@ -668,6 +691,24 @@ export default function Index() {
     }
   }, []);
 
+  // Таймер до обновления заданий (до полуночи по МСК = UTC+3)
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      const msk = new Date(now.getTime() + (3 * 60 - now.getTimezoneOffset()) * 60000);
+      const midnight = new Date(msk);
+      midnight.setHours(24, 0, 0, 0);
+      const diff = midnight.getTime() - msk.getTime();
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setChallengeTimer(`${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const getBgColor = () => {
     if (screenFlash === "red") return "#c0392b";
     if (screenFlash === "green") return "#00e676";
@@ -734,7 +775,7 @@ export default function Index() {
             <h1 className="relative z-10 font-oswald leading-[0.88] font-bold uppercase" style={{ fontSize: "clamp(3.5rem, 18vw, 5.5rem)", color: "#c0392b", letterSpacing: "-0.02em" }}>СЛОМАЙСЯ</h1>
           </div>
 
-          {/* Вызов */}
+          {/* Вызов + триггер */}
           <div className="flex flex-col items-center gap-1.5">
             <span
               className="font-oswald text-base uppercase tracking-wider text-center"
@@ -742,18 +783,16 @@ export default function Index() {
             >
               90% игроков ломаются
             </span>
-            {/* Персональный триггер */}
-            {profileData && (
+            {/* Персональный триггер — приоритет: %, иначе лига, иначе приветствие */}
+            {profileData ? (
               <span className="font-rubik text-xs text-center" style={{ color: "#f39c12" }}>
                 ты быстрее {profileData.percent_better}% игроков
               </span>
-            )}
-            {!profileData && player && player.best_reaction && (
-              <span className="font-rubik text-xs text-center" style={{ color: "rgba(255,255,255,0.25)" }}>
-                лучшая реакция: {player.best_reaction} мс
+            ) : leagueProgress.next ? (
+              <span className="font-rubik text-xs text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
+                до {leagueProgress.next.name}: {leagueProgress.pointsLeft} очков
               </span>
-            )}
-            {!profileData && !player?.best_reaction && (
+            ) : (
               <span className="font-rubik text-xs text-center" style={{ color: "rgba(255,255,255,0.2)" }}>
                 {player?.nickname ?? "Игрок"} · готов к бою?
               </span>
@@ -960,6 +999,21 @@ export default function Index() {
           {result.newStreak >= 5 && (
             <div className="px-4 py-1.5 border font-oswald text-xs tracking-widest uppercase" style={{ borderColor: "#f39c12", color: "#f39c12" }}>
               x2 НАГРАДА · СЕРИЯ {result.newStreak}
+            </div>
+          )}
+
+          {/* Боль потери серии */}
+          {result.streakLost && (
+            <div className="w-full border px-4 py-3 flex items-center gap-2.5" style={{ borderColor: "rgba(192,57,43,0.4)", backgroundColor: "rgba(192,57,43,0.06)" }}>
+              <span className="text-base">💔</span>
+              <div className="flex flex-col gap-0.5">
+                <span className="font-oswald text-sm font-bold uppercase" style={{ color: "#c0392b" }}>
+                  Серия {result.streakLost} прервана
+                </span>
+                <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  Ты был в шаге от серии {result.streakLost + 1}
+                </span>
+              </div>
             </div>
           )}
 
@@ -1428,37 +1482,54 @@ export default function Index() {
               <span className="font-rubik text-sm text-center" style={{ color: "rgba(255,255,255,0.25)" }}>Загружаем задания…</span>
             </div>
           ) : (
-            challenges.map(c => (
-              <div key={c.id} className="border p-4 flex flex-col gap-3" style={{
-                borderColor: c.completed ? "rgba(0,230,118,0.3)" : "rgba(255,255,255,0.07)",
-                backgroundColor: c.completed ? "rgba(0,230,118,0.04)" : "rgba(255,255,255,0.02)",
-              }}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex flex-col gap-0.5 flex-1">
-                    <span className="font-oswald text-base font-bold uppercase" style={{ color: c.completed ? "#00e676" : "#f5f5f5" }}>
-                      {c.completed ? "✓ " : ""}{c.title}
-                    </span>
-                    <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>{c.description}</span>
+            <>
+              {challenges.map(c => (
+                <div key={c.id} className="border p-4 flex flex-col gap-3" style={{
+                  borderColor: c.completed ? "rgba(0,230,118,0.35)" : "rgba(255,255,255,0.07)",
+                  backgroundColor: c.completed ? "rgba(0,230,118,0.05)" : "rgba(255,255,255,0.02)",
+                }}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex flex-col gap-0.5 flex-1">
+                      <span className="font-oswald text-base font-bold uppercase" style={{ color: c.completed ? "#00e676" : "#f5f5f5" }}>
+                        {c.title}
+                      </span>
+                      <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>{c.description}</span>
+                    </div>
+                    {/* Кнопка ЗАБРАТЬ или сумма */}
+                    {c.completed ? (
+                      <div className="shrink-0 flex items-center gap-1.5 px-3 h-8 border animate-result-in" style={{ borderColor: "rgba(0,230,118,0.4)", backgroundColor: "rgba(0,230,118,0.08)" }}>
+                        <span className="font-oswald text-xs font-bold uppercase" style={{ color: "#00e676" }}>✓ {c.reward_coins}⚡</span>
+                      </div>
+                    ) : (
+                      <span className="font-oswald text-sm font-bold shrink-0" style={{ color: "rgba(255,255,255,0.25)" }}>+{c.reward_coins}⚡</span>
+                    )}
                   </div>
-                  <div className="flex flex-col items-end gap-0.5 shrink-0">
-                    <span className="font-oswald text-sm font-bold" style={{ color: "#f39c12" }}>+{c.reward_coins}⚡</span>
-                  </div>
+                  {/* Прогресс */}
+                  {!c.completed && (
+                    <div className="flex flex-col gap-1">
+                      <div className="flex justify-between">
+                        <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>{c.progress} / {c.target}</span>
+                        <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>{Math.round((c.progress / c.target) * 100)}%</span>
+                      </div>
+                      <div className="relative w-full h-1 rounded-full overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.06)" }}>
+                        <div
+                          className="absolute left-0 top-0 h-full rounded-full transition-all duration-500"
+                          style={{ width: `${Math.min(100, (c.progress / c.target) * 100)}%`, backgroundColor: "#c0392b" }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
-                {/* Прогресс */}
-                <div className="flex flex-col gap-1">
-                  <div className="flex justify-between">
-                    <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>{c.progress} / {c.target}</span>
-                    <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>{Math.round((c.progress / c.target) * 100)}%</span>
-                  </div>
-                  <div className="relative w-full h-1 rounded-full overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.06)" }}>
-                    <div
-                      className="absolute left-0 top-0 h-full rounded-full transition-all duration-500"
-                      style={{ width: `${Math.min(100, (c.progress / c.target) * 100)}%`, backgroundColor: c.completed ? "#00e676" : "#c0392b" }}
-                    />
-                  </div>
-                </div>
+              ))}
+
+              {/* Таймер обновления */}
+              <div className="flex items-center justify-center gap-2 py-2">
+                <Icon name="Clock" size={12} style={{ color: "rgba(255,255,255,0.2)" }} />
+                <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.2)" }}>
+                  Новые задания через {challengeTimer}
+                </span>
               </div>
-            ))
+            </>
           )}
         </div>
 
