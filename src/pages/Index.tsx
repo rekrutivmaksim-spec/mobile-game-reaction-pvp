@@ -1013,6 +1013,12 @@ export default function Index() {
 
   // ── LEADERBOARD ──
   if (screen === "leaderboard") {
+    // Цель: найти ближайшего выше в топе
+    const myLbEntry = leaderboard.find(e => e.id === playerId);
+    const myRank = myLbEntry?.rank ?? null;
+    const aboveEntry = myRank && myRank > 1 ? leaderboard.find(e => e.rank === myRank - 1) : null;
+    const winsToOvertake = aboveEntry ? Math.ceil((aboveEntry.rating - rating + 1) / 25) : null;
+
     return (
       <div className="flex flex-col h-dvh w-full overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
         {/* Header */}
@@ -1020,18 +1026,30 @@ export default function Index() {
           <button onClick={() => setScreen("home")} className="active:opacity-60 transition-opacity">
             <Icon name="ArrowLeft" size={20} style={{ color: "rgba(255,255,255,0.5)" }} />
           </button>
-          <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white">Топ игроков</h2>
+          <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white flex-1">Топ игроков</h2>
+          {myRank && <span className="font-oswald text-base font-bold" style={{ color: "rgba(255,255,255,0.3)" }}>#{myRank}</span>}
         </div>
+
+        {/* Цель — обогнать следующего */}
+        {aboveEntry && winsToOvertake !== null && (
+          <div className="mx-6 mb-3 border px-4 py-2.5 flex items-center gap-2.5" style={{ borderColor: "rgba(243,156,18,0.3)", backgroundColor: "rgba(243,156,18,0.05)" }}>
+            <span className="text-sm">🎯</span>
+            <span className="font-rubik text-sm flex-1" style={{ color: "#f39c12" }}>
+              До {aboveEntry.nickname} — {winsToOvertake === 1 ? "1 победа" : `${winsToOvertake} победы`}
+            </span>
+            <span className="font-oswald text-sm font-bold" style={{ color: "rgba(255,255,255,0.3)" }}>#{myRank - 1}</span>
+          </div>
+        )}
 
         {/* My position block */}
         {player && neighbors.length > 0 && (
-          <div className="mx-6 mb-4 border p-4" style={{ borderColor: "rgba(192,57,43,0.3)", backgroundColor: "rgba(192,57,43,0.05)" }}>
+          <div className="mx-6 mb-3 border p-4" style={{ borderColor: "rgba(192,57,43,0.3)", backgroundColor: "rgba(192,57,43,0.05)" }}>
             <span className="font-rubik text-[10px] uppercase tracking-widest mb-2 block" style={{ color: "rgba(255,255,255,0.3)" }}>Рядом с тобой</span>
             {neighbors.map((n) => (
               <div key={n.id} className="flex items-center gap-3 py-1.5">
                 <span className="font-oswald text-sm w-8 text-right" style={{ color: n.id === playerId ? "#c0392b" : "rgba(255,255,255,0.3)" }}>#{n.rank}</span>
                 <span className="font-rubik text-sm flex-1" style={{ color: n.id === playerId ? "#f5f5f5" : "rgba(255,255,255,0.45)", fontWeight: n.id === playerId ? 500 : 400 }}>
-                  {n.nickname} {n.id === playerId ? "← ты" : ""}
+                  {n.nickname}{n.id === playerId ? " ← ты" : ""}
                 </span>
                 <span className="font-oswald text-sm font-bold" style={{ color: n.id === playerId ? "#c0392b" : "rgba(255,255,255,0.4)" }}>{n.rating}</span>
               </div>
@@ -1064,14 +1082,15 @@ export default function Index() {
                     className="flex items-center gap-3 py-3"
                     style={{
                       borderBottom: "1px solid rgba(255,255,255,0.04)",
-                      backgroundColor: isMe ? "rgba(192,57,43,0.06)" : "transparent",
+                      backgroundColor: isMe ? "rgba(192,57,43,0.08)" : "transparent",
+                      boxShadow: isMe ? "inset 0 0 0 1px rgba(192,57,43,0.2)" : "none",
                     }}
                   >
                     <span className="font-oswald text-sm w-8 text-right" style={{ color: isMe ? "#c0392b" : "rgba(255,255,255,0.25)" }}>
                       {medal || `#${entry.rank}`}
                     </span>
-                    <span className="font-rubik text-sm flex-1" style={{ color: isMe ? "#f5f5f5" : "rgba(255,255,255,0.55)", fontWeight: isMe ? 500 : 400 }}>
-                      {entry.nickname}
+                    <span className="font-rubik text-sm flex-1" style={{ color: isMe ? "#f5f5f5" : "rgba(255,255,255,0.55)", fontWeight: isMe ? 600 : 400 }}>
+                      {entry.nickname}{isMe ? " 👈" : ""}
                     </span>
                     <span className="text-sm">{entryLeague.icon}</span>
                     <span className="font-oswald text-base font-bold" style={{ color: isMe ? "#c0392b" : entryLeague.color }}>{entry.rating}</span>
@@ -1090,26 +1109,69 @@ export default function Index() {
     const totalGames = (player?.wins ?? 0) + (player?.losses ?? 0);
     const profLeague = getLeague(rating);
     const profProgress = getProgressToNext(rating);
+    const winrate = totalGames > 0 ? Math.round(((player?.wins ?? 0) / totalGames) * 100) : 0;
+    const pctBetter = profileData?.percent_better ?? null;
+    const pctWorse = pctBetter !== null ? (100 - pctBetter) : null;
     return (
       <div className="flex flex-col h-dvh w-full overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
-        <div className="flex items-center gap-4 px-6 pt-10 pb-6">
+        <div className="flex items-center gap-4 px-6 pt-10 pb-4">
           <button onClick={() => setScreen("home")} className="active:opacity-60 transition-opacity">
             <Icon name="ArrowLeft" size={20} style={{ color: "rgba(255,255,255,0.5)" }} />
           </button>
-          <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white">Профиль</h2>
+          <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white flex-1">Профиль</h2>
         </div>
 
-        <div className="flex-1 px-6 flex flex-col gap-4 overflow-y-auto pb-8">
-          {/* Name + rating + league */}
-          <div className="border p-5 flex flex-col gap-2" style={{ borderColor: profLeague.color + "40", backgroundColor: "rgba(255,255,255,0.02)" }}>
+        <div className="flex-1 px-6 flex flex-col gap-3 overflow-y-auto pb-8">
+
+          {/* Hero-карточка: Лига + ELO + ник */}
+          <div className="border p-5 flex flex-col gap-3" style={{ borderColor: profLeague.color + "50", backgroundColor: "rgba(255,255,255,0.02)" }}>
+            {/* Лига — главный акцент */}
             <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-3xl leading-none">{profLeague.icon}</span>
+                <span
+                  className="font-oswald text-3xl font-bold uppercase"
+                  style={{ color: profLeague.color, textShadow: `0 0 20px ${profLeague.glowColor}` }}
+                >
+                  {profLeague.name.toUpperCase()}
+                </span>
+              </div>
+              <div className="flex flex-col items-end">
+                <span className="font-oswald text-2xl font-bold" style={{ color: "#f5f5f5" }}>{rating}</span>
+                <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.3)" }}>ELO</span>
+              </div>
+            </div>
+
+            {/* Прогресс до следующей лиги */}
+            <div className="flex flex-col gap-1">
+              <div className="flex justify-between">
+                <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>{profLeague.name} {profLeague.minRating}</span>
+                {profProgress.next && (
+                  <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>
+                    до {profProgress.next.name} · {profProgress.pointsLeft}
+                  </span>
+                )}
+              </div>
+              <div className="relative w-full h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.07)" }}>
+                <div className="absolute left-0 top-0 h-full rounded-full" style={{ width: `${profProgress.pct}%`, backgroundColor: profLeague.color, boxShadow: `0 0 8px ${profLeague.glowColor}` }} />
+              </div>
+            </div>
+
+            {/* % игроков — инвертировано */}
+            {pctWorse !== null && (
+              <div className="border px-4 py-2.5 flex items-center justify-center" style={{ borderColor: "rgba(243,156,18,0.3)", backgroundColor: "rgba(243,156,18,0.06)" }}>
+                <span className="font-oswald text-lg font-bold uppercase tracking-wider" style={{ color: "#f39c12" }}>
+                  🔥 быстрее {100 - pctWorse}% игроков
+                </span>
+              </div>
+            )}
+
+            {/* Ник + редактирование */}
+            <div className="flex items-center justify-between pt-1" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
               {nickEditing ? (
-                <div className="flex flex-col gap-2 flex-1 mr-2">
+                <div className="flex flex-col gap-2 flex-1">
                   <input
-                    autoFocus
-                    value={nickValue}
-                    onChange={e => setNickValue(e.target.value)}
-                    maxLength={20}
+                    autoFocus value={nickValue} onChange={e => setNickValue(e.target.value)} maxLength={20}
                     className="w-full h-10 px-3 font-oswald text-xl outline-none"
                     style={{ backgroundColor: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.2)", color: "#f5f5f5" }}
                     onKeyDown={e => { if (e.key === "Enter") saveNickname(); if (e.key === "Escape") setNickEditing(false); }}
@@ -1125,101 +1187,70 @@ export default function Index() {
                   </div>
                 </div>
               ) : (
-                <button
-                  onClick={() => { setNickValue(player?.nickname ?? ""); setNickEditing(true); setNickError(""); }}
-                  className="flex items-center gap-2 group"
-                >
-                  <span className="font-oswald text-2xl font-bold text-white">{player?.nickname ?? "—"}</span>
-                  <Icon name="Pencil" size={14} style={{ color: "rgba(255,255,255,0.2)" }} />
+                <button onClick={() => { setNickValue(player?.nickname ?? ""); setNickEditing(true); setNickError(""); }} className="flex items-center gap-2">
+                  <span className="font-oswald text-xl font-bold text-white">{player?.nickname ?? "—"}</span>
+                  <Icon name="Pencil" size={13} style={{ color: "rgba(255,255,255,0.2)" }} />
                 </button>
               )}
               {!nickEditing && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xl">{profLeague.icon}</span>
-                  <span className="font-oswald text-base font-bold uppercase" style={{ color: profLeague.color }}>{profLeague.name}</span>
-                </div>
+                <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.2)" }}>{totalGames} матчей</span>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <span className="font-oswald text-4xl font-bold" style={{ color: "#c0392b" }}>{rating}</span>
-              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.3)" }}>ELO</span>
-            </div>
-            {/* Progress bar in profile */}
-            <div className="flex flex-col gap-1">
-              <div className="flex justify-between">
-                <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>
-                  {profLeague.name} {profLeague.minRating}
-                </span>
-                {profProgress.next && (
-                  <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>
-                    {profProgress.next.name} {profProgress.next.minRating} · ещё {profProgress.pointsLeft}
-                  </span>
-                )}
-              </div>
-              <div className="relative w-full h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.07)" }}>
-                <div
-                  className="absolute left-0 top-0 h-full rounded-full"
-                  style={{ width: `${profProgress.pct}%`, backgroundColor: profLeague.color, boxShadow: `0 0 8px ${profLeague.glowColor}` }}
-                />
-              </div>
-            </div>
-            {profileData && (
-              <span className="font-rubik text-sm mt-0.5" style={{ color: "#f39c12" }}>
-                Ты быстрее {profileData.percent_better}% игроков · #{profileData.rank} в мире
-              </span>
-            )}
           </div>
 
-          {/* Stats grid */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Победы / Поражения / Матчи — без убивающего винрейта */}
+          <div className="grid grid-cols-3 gap-3">
             {[
               { label: "Победы", value: player?.wins ?? 0, color: "#00e676" },
               { label: "Поражения", value: player?.losses ?? 0, color: "#c0392b" },
               { label: "Матчей", value: totalGames, color: "#f5f5f5" },
-              { label: "Винрейт", value: profileData ? `${profileData.winrate}%` : (totalGames > 0 ? `${Math.round((player!.wins / totalGames) * 100)}%` : "—"), color: "#f39c12" },
             ].map(({ label, value, color }) => (
-              <div key={label} className="border p-4 flex flex-col gap-1" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
-                <span className="font-rubik text-[10px] uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.25)" }}>{label}</span>
+              <div key={label} className="border p-3 flex flex-col gap-0.5" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
+                <span className="font-rubik text-[9px] uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.25)" }}>{label}</span>
                 <span className="font-oswald text-2xl font-bold" style={{ color }}>{value}</span>
               </div>
             ))}
           </div>
 
-          {/* Reaction stats */}
+          {/* Рост — вместо винрейта */}
+          <div className="border p-4 flex items-center justify-between" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
+            <div className="flex flex-col gap-0.5">
+              <span className="font-rubik text-[10px] uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.25)" }}>Форма</span>
+              <span className="font-oswald text-base font-bold" style={{ color: winrate >= 50 ? "#00e676" : winrate >= 30 ? "#f39c12" : "rgba(255,255,255,0.4)" }}>
+                {winrate >= 60 ? "🔥 В огне" : winrate >= 50 ? "✊ В силе" : winrate >= 30 ? "📈 Растёт" : "💪 Ещё есть куда расти"}
+              </span>
+            </div>
+            <div className="flex flex-col items-end gap-0.5">
+              <span className="font-rubik text-[10px] uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.25)" }}>Лучшая серия</span>
+              <span className="font-oswald text-2xl font-bold" style={{ color: "#f39c12" }}>{player?.max_streak || "—"}</span>
+            </div>
+          </div>
+
+          {/* Реакция */}
           <div className="border p-4 flex flex-col gap-3" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
             <span className="font-rubik text-[10px] uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.25)" }}>Реакция</span>
             <div className="flex gap-6">
               <div className="flex flex-col gap-0.5">
-                <span className="font-oswald text-2xl font-bold" style={{ color: "#00e676" }}>
-                  {player?.best_reaction ? `${player.best_reaction}мс` : "—"}
-                </span>
+                <span className="font-oswald text-2xl font-bold" style={{ color: "#00e676" }}>{player?.best_reaction ? `${player.best_reaction}мс` : "—"}</span>
                 <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.2)" }}>лучшая</span>
               </div>
               <div className="w-px" style={{ backgroundColor: "rgba(255,255,255,0.07)" }} />
               <div className="flex flex-col gap-0.5">
-                <span className="font-oswald text-2xl font-bold" style={{ color: "rgba(255,255,255,0.6)" }}>
-                  {profileData?.avg_reaction ? `${profileData.avg_reaction}мс` : "—"}
-                </span>
+                <span className="font-oswald text-2xl font-bold" style={{ color: "rgba(255,255,255,0.6)" }}>{profileData?.avg_reaction ? `${profileData.avg_reaction}мс` : "—"}</span>
                 <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.2)" }}>средняя</span>
               </div>
             </div>
           </div>
 
-          {/* Streak */}
-          <div className="border p-4 flex justify-between items-center" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
-            <div>
-              <span className="font-rubik text-[10px] uppercase tracking-widest block mb-1" style={{ color: "rgba(255,255,255,0.25)" }}>Текущая серия</span>
-              <span className="font-oswald text-2xl font-bold" style={{ color: streak > 0 ? "#f39c12" : "rgba(255,255,255,0.3)" }}>
-                {streak > 0 ? `🔥 ${streak}` : "—"}
-              </span>
-            </div>
-            <div className="text-right">
-              <span className="font-rubik text-[10px] uppercase tracking-widest block mb-1" style={{ color: "rgba(255,255,255,0.25)" }}>Рекорд серии</span>
-              <span className="font-oswald text-2xl font-bold" style={{ color: "rgba(255,255,255,0.5)" }}>
-                {player?.max_streak || "—"}
-              </span>
-            </div>
-          </div>
+          {/* CTA: улучшить реакцию */}
+          <button
+            onClick={() => { setScreen("home"); startMatch(); }}
+            className="w-full h-12 font-oswald text-base font-bold tracking-[0.2em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+            style={{ backgroundColor: "rgba(192,57,43,0.15)", color: "#c0392b", border: "1px solid rgba(192,57,43,0.3)" }}
+          >
+            <Icon name="Zap" size={16} />
+            УЛУЧШИТЬ РЕАКЦИЮ
+          </button>
         </div>
       </div>
     );
@@ -1229,19 +1260,29 @@ export default function Index() {
   if (screen === "duel-wait") {
     return (
       <div className="flex flex-col h-dvh w-full px-6 py-10 overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
-        <div className="flex items-center gap-4 pb-8">
+        <div className="flex items-center gap-4 pb-6">
           <button onClick={() => setScreen("home")} className="active:opacity-60 transition-opacity">
             <Icon name="ArrowLeft" size={20} style={{ color: "rgba(255,255,255,0.5)" }} />
           </button>
-          <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white">Дуэль с другом</h2>
+          <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white">Дуэль</h2>
         </div>
 
-        <div className="flex flex-col gap-8 flex-1 justify-center">
+        {/* Главный слоган */}
+        <div className="flex flex-col items-center gap-1 pb-6">
+          <span className="font-oswald text-base uppercase tracking-wider text-center" style={{ color: "rgba(255,255,255,0.5)" }}>
+            Проверь кто из вас
+          </span>
+          <span className="font-oswald text-2xl font-bold uppercase text-center" style={{ color: "#c0392b" }}>
+            сломается первым
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-6 flex-1 justify-center">
           {/* Создать комнату */}
-          <div className="border p-5 flex flex-col gap-4" style={{ borderColor: "rgba(192,57,43,0.3)", backgroundColor: "rgba(192,57,43,0.04)" }}>
+          <div className="border p-5 flex flex-col gap-4" style={{ borderColor: "rgba(192,57,43,0.35)", backgroundColor: "rgba(192,57,43,0.05)" }}>
             <div className="flex flex-col gap-1">
-              <span className="font-oswald text-lg font-bold uppercase text-white">Вызвать друга</span>
-              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Создай комнату и отправь ссылку другу</span>
+              <span className="font-oswald text-lg font-bold uppercase text-white">Бросить вызов</span>
+              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Отправь другу ссылку — и узнайте кто быстрее</span>
             </div>
             <button
               onClick={createDuelRoom}
@@ -1249,7 +1290,7 @@ export default function Index() {
               style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}
             >
               <Icon name="Swords" size={16} />
-              СОЗДАТЬ ДУЭЛЬ
+              ВЫЗВАТЬ НА ДУЭЛЬ
             </button>
           </div>
 
