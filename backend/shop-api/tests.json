@@ -1,0 +1,43 @@
+{
+  "tests": [
+    {
+      "name": "CORS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Catalog without player_id",
+      "method": "GET",
+      "path": "/?action=catalog",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "player_id required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Catalog returns items",
+      "method": "GET",
+      "path": "/?action=catalog&player_id=00000000-0000-0000-0000-000000000001",
+      "expectedStatus": 200,
+      "expectedBody": {"inventory": {}},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Buy without item_id",
+      "method": "POST",
+      "path": "/?action=buy&player_id=00000000-0000-0000-0000-000000000001",
+      "body": {},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "item_id required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Buy nonexistent item",
+      "method": "POST",
+      "path": "/?action=buy&player_id=00000000-0000-0000-0000-000000000001",
+      "body": {"item_id": "does_not_exist"},
+      "expectedStatus": 404,
+      "bodyMatcher": "partial"
+    }
+  ]
+}

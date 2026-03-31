@@ -5,9 +5,10 @@ import { getLeague, getProgressToNext, getPressureMessage } from "@/lib/leagues"
 const API       = "https://functions.poehali.dev/7000f2b2-907e-4557-90a3-c4e459c83279";
 const DUEL_API  = "https://functions.poehali.dev/fd904cf2-ca8c-4cda-9ec3-e5fb219c5102";
 const CHALL_API = "https://functions.poehali.dev/741e5a6a-988f-460f-a7a9-c35ed918cb69";
+const SHOP_API  = "https://functions.poehali.dev/ec65f2ad-bca4-448e-aadc-868e4837731e";
 
 // ─────────────── TYPES ───────────────
-type Screen = "home" | "searching" | "game" | "result" | "leaderboard" | "profile" | "duel-lobby" | "duel-wait" | "challenges";
+type Screen = "home" | "searching" | "game" | "result" | "leaderboard" | "profile" | "duel-lobby" | "duel-wait" | "challenges" | "shop";
 type GamePhase = "wait" | "tension" | "action" | "done";
 type ResultType = "win" | "lose" | "false_start";
 
@@ -30,6 +31,21 @@ interface Challenge {
   reward_coins: number;
   progress: number;
   completed: boolean;
+}
+
+interface ShopItem {
+  id: string;
+  tab: "coins" | "help" | "look" | "status";
+  title: string;
+  description: string;
+  icon: string;
+  price_coins: number | null;
+  price_rub: number | null;
+  item_type: "consumable" | "permanent" | "activator";
+  effect_key: string;
+  effect_value: number;
+  badge: string | null;
+  sort_order: number;
 }
 
 interface Player {
@@ -121,6 +137,15 @@ export default function Index() {
   // Challenges
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [challengeCoins, setChallengeCoins] = useState(0);
+
+  // Shop
+  const [shopItems, setShopItems] = useState<ShopItem[]>([]);
+  const [shopInventory, setShopInventory] = useState<Record<string, { quantity: number; equipped: boolean }>>({});
+  const [shopBoosts, setShopBoosts] = useState<Record<string, number>>({});
+  const [shopTab, setShopTab] = useState<"help" | "look" | "status">("help");
+  const [shopLoading, setShopLoading] = useState(false);
+  const [shopToast, setShopToast] = useState("");
+  const [contextOffer, setContextOffer] = useState<{ itemId: string; message: string } | null>(null);
 
   const greenTimeRef = useRef<number>(0);
   const gameActiveRef = useRef(false);
@@ -227,6 +252,15 @@ export default function Index() {
           percentBetter: d.percent_better,
           rank: d.rank,
         } : prev);
+        // Контекстные офферы
+        if (d.streak_shield_fired) {
+          setShopToast("🛡️ Защита серии сработала!");
+          setTimeout(() => setShopToast(""), 3000);
+        }
+        if (d.league_shield_fired) {
+          setShopToast("💎 Щит лиги сохранил твою лигу!");
+          setTimeout(() => setShopToast(""), 3000);
+        }
       })
       .catch(() => {});
   }, []);
@@ -294,6 +328,13 @@ export default function Index() {
 
     saveResult(type, playerMs > 0 && playerMs < 5000 ? playerMs : null, newPlayer!);
     reportChallenge(type);
+
+    // Контекстный оффер
+    if (type === "false_start") {
+      setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Нажал слишком рано — исправить? 10 монет" }), 400);
+    } else if (!isWin && nearMiss === "close") {
+      setTimeout(() => setContextOffer({ itemId: "retry_1", message: `Проиграл на ${Math.abs(playerMs - opponentMs)}мс — вторая попытка?` }), 400);
+    }
 
     const delay = nearMiss ? 500 : 350;
     setTimeout(() => {
@@ -494,6 +535,75 @@ export default function Index() {
     }
   }, [duelRoom, player]);
 
+  // ── SHOP: загрузить каталог ──
+  const loadShop = useCallback(() => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    setShopLoading(true);
+    fetch(`${SHOP_API}/?action=catalog&player_id=${pid}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.items) setShopItems(d.items);
+        if (d.inventory) setShopInventory(d.inventory);
+        if (d.boosts) setShopBoosts(d.boosts);
+        if (d.coins !== undefined && player) setPlayer(p => p ? { ...p, coins: d.coins } : p);
+      })
+      .finally(() => setShopLoading(false));
+  }, [player]);
+
+  // ── SHOP: купить товар ──
+  const buyItem = useCallback((itemId: string) => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    fetch(`${SHOP_API}/?action=buy`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+      body: JSON.stringify({ item_id: itemId }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) { setShopToast(d.error); setTimeout(() => setShopToast(""), 2500); return; }
+        if (d.ok) {
+          setShopToast("Куплено!");
+          setTimeout(() => setShopToast(""), 2000);
+          setContextOffer(null);
+          if (player) setPlayer(p => p ? { ...p, coins: d.coins_left } : p);
+          loadShop();
+        }
+      });
+  }, [player, loadShop]);
+
+  // ── SHOP: надеть предмет ──
+  const equipItem = useCallback((itemId: string) => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    fetch(`${SHOP_API}/?action=equip`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+      body: JSON.stringify({ item_id: itemId }),
+    })
+      .then(r => r.json())
+      .then(d => { if (d.ok) loadShop(); });
+  }, [loadShop]);
+
+  // ── SHOP: использовать расходник (контекстный оффер) ──
+  const useConsumable = useCallback((effectKey: string) => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    fetch(`${SHOP_API}/?action=use`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+      body: JSON.stringify({ effect_key: effectKey }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok) {
+          setContextOffer(null);
+          loadShop();
+        }
+      });
+  }, [loadShop]);
+
   // ── CHALLENGES: загрузить ──
   const loadChallenges = useCallback(() => {
     const pid = localStorage.getItem("ne_slomaisa_player_id");
@@ -591,10 +701,11 @@ export default function Index() {
         </div>
 
         {/* Nav */}
-        <div className="flex gap-8 items-center">
+        <div className="flex gap-6 items-center">
           {[
             { icon: "Trophy", label: "Топ", action: () => { setScreen("leaderboard"); loadLeaderboard(); } },
             { icon: "Swords", label: "Дуэль", action: () => { setDuelJoinCode(""); setDuelJoinError(""); setScreen("duel-wait"); } },
+            { icon: "ShoppingBag", label: "Магазин", action: () => { setScreen("shop"); loadShop(); } },
             { icon: "CalendarCheck", label: "Задания", action: () => { setScreen("challenges"); loadChallenges(); } },
             { icon: "User", label: "Профиль", action: () => { setScreen("profile"); loadProfile(); } },
           ].map(({ icon, label, action }) => (
@@ -1209,6 +1320,139 @@ export default function Index() {
     );
   }
 
+  // ── SHOP ──
+  if (screen === "shop") {
+    const tabItems = shopItems.filter(i => i.tab === shopTab);
+    return (
+      <div className="flex flex-col h-dvh w-full overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
+        {/* Header */}
+        <div className="flex items-center gap-4 px-6 pt-10 pb-3">
+          <button onClick={() => setScreen("home")} className="active:opacity-60">
+            <Icon name="ArrowLeft" size={20} style={{ color: "rgba(255,255,255,0.5)" }} />
+          </button>
+          <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white flex-1">Магазин</h2>
+          <div className="flex items-center gap-1.5">
+            <span className="font-oswald text-xl font-bold" style={{ color: "#f39c12" }}>⚡{coins}</span>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex px-6 gap-2 pb-3">
+          {(["help", "look", "status"] as const).map(t => {
+            const labels: Record<string, string> = { help: "Помощь", look: "Облик", status: "Статус" };
+            return (
+              <button
+                key={t}
+                onClick={() => setShopTab(t)}
+                className="flex-1 h-8 font-oswald text-xs font-bold uppercase tracking-wider transition-all"
+                style={{
+                  backgroundColor: shopTab === t ? "#c0392b" : "rgba(255,255,255,0.05)",
+                  color: shopTab === t ? "#f5f5f5" : "rgba(255,255,255,0.35)",
+                  border: shopTab === t ? "none" : "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                {labels[t]}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Toast */}
+        {shopToast && (
+          <div className="mx-6 mb-2 px-4 py-2 animate-result-in" style={{ backgroundColor: "rgba(0,230,118,0.12)", border: "1px solid rgba(0,230,118,0.3)" }}>
+            <span className="font-oswald text-sm font-bold uppercase" style={{ color: "#00e676" }}>{shopToast}</span>
+          </div>
+        )}
+
+        {/* Items */}
+        <div className="flex-1 overflow-y-auto px-6 pb-8">
+          {shopLoading ? (
+            <div className="flex justify-center pt-10">
+              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.3)" }}>Загрузка…</span>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {tabItems.map(item => {
+                const owned = shopInventory[item.id];
+                const isOwned = !!owned;
+                const qty = owned?.quantity ?? 0;
+                const isEquipped = owned?.equipped ?? false;
+                const isPermanent = item.item_type === "permanent";
+                const isConsumable = item.item_type === "consumable" || item.item_type === "activator";
+                const boost = shopBoosts[item.effect_key] ?? 0;
+                const canAfford = item.price_coins !== null && coins >= item.price_coins;
+
+                return (
+                  <div key={item.id} className="border p-4 flex gap-3" style={{
+                    borderColor: isOwned ? "rgba(0,230,118,0.2)" : "rgba(255,255,255,0.07)",
+                    backgroundColor: isOwned ? "rgba(0,230,118,0.03)" : "rgba(255,255,255,0.02)",
+                  }}>
+                    <span className="text-3xl leading-none pt-0.5">{item.icon}</span>
+                    <div className="flex-1 flex flex-col gap-1.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-oswald text-base font-bold uppercase" style={{ color: "#f5f5f5" }}>{item.title}</span>
+                          {item.badge && (
+                            <span className="font-rubik text-[9px] px-1.5 py-0.5 uppercase tracking-wider" style={{
+                              backgroundColor: item.badge === "best" ? "rgba(243,156,18,0.2)" : "rgba(192,57,43,0.2)",
+                              color: item.badge === "best" ? "#f39c12" : "#c0392b",
+                              border: `1px solid ${item.badge === "best" ? "rgba(243,156,18,0.3)" : "rgba(192,57,43,0.3)"}`,
+                            }}>{item.badge === "best" ? "Лучшее" : "Популярно"}</span>
+                          )}
+                        </div>
+                        {isConsumable && (isOwned || boost > 0) && (
+                          <span className="font-oswald text-sm font-bold shrink-0" style={{ color: "#f39c12" }}>
+                            ×{item.item_type === "activator" ? boost : qty}
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>{item.description}</span>
+                      <div className="flex items-center gap-2 mt-1">
+                        {/* Цена */}
+                        {item.price_coins && (
+                          <span className="font-oswald text-sm font-bold" style={{ color: canAfford ? "#f39c12" : "rgba(255,255,255,0.25)" }}>
+                            ⚡{item.price_coins}
+                          </span>
+                        )}
+                        <div className="flex-1" />
+                        {/* Кнопка действия */}
+                        {isPermanent && isOwned ? (
+                          <button
+                            onClick={() => equipItem(item.id)}
+                            className="px-3 h-7 font-oswald text-xs font-bold uppercase tracking-wider transition-all active:scale-95"
+                            style={{
+                              backgroundColor: isEquipped ? "rgba(0,230,118,0.15)" : "rgba(255,255,255,0.08)",
+                              color: isEquipped ? "#00e676" : "rgba(255,255,255,0.6)",
+                              border: `1px solid ${isEquipped ? "rgba(0,230,118,0.3)" : "rgba(255,255,255,0.1)"}`,
+                            }}
+                          >
+                            {isEquipped ? "Надето" : "Надеть"}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => buyItem(item.id)}
+                            disabled={!canAfford}
+                            className="px-3 h-7 font-oswald text-xs font-bold uppercase tracking-wider transition-all active:scale-95"
+                            style={{
+                              backgroundColor: canAfford ? "#c0392b" : "rgba(255,255,255,0.04)",
+                              color: canAfford ? "#f5f5f5" : "rgba(255,255,255,0.2)",
+                            }}
+                          >
+                            {!canAfford ? "Мало монет" : isConsumable && isOwned ? "Ещё" : "Купить"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // ── LEAGUE-UP OVERLAY (глобальный, поверх всего) ──
   return (
     <>
@@ -1239,6 +1483,41 @@ export default function Index() {
               </span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Контекстный оффер */}
+      {contextOffer && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center pb-8 px-6" style={{ backgroundColor: "rgba(0,0,0,0.6)" }}>
+          <div className="w-full max-w-sm border p-5 flex flex-col gap-4 animate-result-in" style={{ backgroundColor: "#161616", borderColor: "rgba(192,57,43,0.4)" }}>
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🔄</span>
+              <span className="font-rubik text-sm flex-1" style={{ color: "rgba(255,255,255,0.7)" }}>{contextOffer.message}</span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => buyItem(contextOffer.itemId)}
+                className="flex-1 h-11 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95"
+                style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}
+              >
+                Купить · 10⚡
+              </button>
+              <button
+                onClick={() => setContextOffer(null)}
+                className="h-11 px-4 font-oswald text-sm uppercase transition-all active:scale-95"
+                style={{ backgroundColor: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)", border: "1px solid rgba(255,255,255,0.1)" }}
+              >
+                Нет
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Глобальный тост */}
+      {shopToast && screen !== "shop" && (
+        <div className="fixed top-8 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 animate-result-in" style={{ backgroundColor: "rgba(0,230,118,0.15)", border: "1px solid rgba(0,230,118,0.35)", backdropFilter: "blur(8px)" }}>
+          <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#00e676" }}>{shopToast}</span>
         </div>
       )}
     </>

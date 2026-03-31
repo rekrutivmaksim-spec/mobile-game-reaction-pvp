@@ -107,14 +107,72 @@ def handler(event: dict, context) -> dict:
 
         player = dict(row)
         is_win = result_type == "win"
+
+        # Загружаем активные бусты
+        cur.execute(
+            f"SELECT effect_key, charges_left FROM {SCHEMA}.active_boosts WHERE player_id=%s",
+            (player_id,)
+        )
+        boosts = {r["effect_key"]: r["charges_left"] for r in cur.fetchall()}
+
         rating_delta = 25 if is_win else -15
+
+        # Щит лиги
+        league_shield_fired = False
+        if not is_win and boosts.get("league_shield", 0) > 0:
+            league_min = {"bronze": 0, "silver": 1000, "gold": 1400, "plat": 1800, "legend": 2200}
+            curr_lg = next((k for k, v in sorted(league_min.items(), key=lambda x: -x[1]) if player["rating"] >= v), "bronze")
+            min_rating = league_min[curr_lg]
+            new_rating_raw = player["rating"] + rating_delta
+            if new_rating_raw < min_rating:
+                rating_delta = min_rating - player["rating"]  # удержать на границе
+                league_shield_fired = True
+                cur.execute(
+                    f"UPDATE {SCHEMA}.active_boosts SET charges_left=charges_left-1 WHERE player_id=%s AND effect_key='league_shield'",
+                    (player_id,)
+                )
+                cur.execute(
+                    f"DELETE FROM {SCHEMA}.active_boosts WHERE player_id=%s AND effect_key='league_shield' AND charges_left<=0",
+                    (player_id,)
+                )
+
         new_rating = max(0, player["rating"] + rating_delta)
         new_wins = player["wins"] + (1 if is_win else 0)
         new_losses = player["losses"] + (0 if is_win else 1)
-        new_streak = player["streak"] + 1 if is_win else 0
+
+        # Защита серии
+        streak_shield_fired = False
+        if not is_win and boosts.get("streak_shield", 0) > 0:
+            streak_shield_fired = True
+            new_streak = player["streak"]  # серия сохраняется
+            cur.execute(
+                f"UPDATE {SCHEMA}.active_boosts SET charges_left=charges_left-1 WHERE player_id=%s AND effect_key='streak_shield'",
+                (player_id,)
+            )
+            cur.execute(
+                f"DELETE FROM {SCHEMA}.active_boosts WHERE player_id=%s AND effect_key='streak_shield' AND charges_left<=0",
+                (player_id,)
+            )
+        else:
+            new_streak = player["streak"] + 1 if is_win else 0
+
         new_max_streak = max(player["max_streak"], new_streak)
         streak_bonus = 2 if new_streak >= 5 else 1
-        coins_earned = (20 if is_win else 5) * streak_bonus
+
+        # x2 буст
+        x2_active = boosts.get("x2_reward", 0) > 0
+        base_coins = (20 if is_win else 5) * streak_bonus
+        coins_earned = base_coins * (2 if x2_active and is_win else 1)
+        if x2_active and is_win:
+            cur.execute(
+                f"UPDATE {SCHEMA}.active_boosts SET charges_left=charges_left-1 WHERE player_id=%s AND effect_key='x2_reward'",
+                (player_id,)
+            )
+            cur.execute(
+                f"DELETE FROM {SCHEMA}.active_boosts WHERE player_id=%s AND effect_key='x2_reward' AND charges_left<=0",
+                (player_id,)
+            )
+
         new_coins = player["coins"] + coins_earned
 
         new_best = player["best_reaction"]
@@ -165,6 +223,9 @@ def handler(event: dict, context) -> dict:
             "avg_reaction": avg_reaction,
             "prev_league": prev_league["id"],
             "new_league": new_league["id"],
+            "league_shield_fired": league_shield_fired,
+            "streak_shield_fired": streak_shield_fired,
+            "x2_active": x2_active,
         })
 
     # ── GET /leaderboard ──
