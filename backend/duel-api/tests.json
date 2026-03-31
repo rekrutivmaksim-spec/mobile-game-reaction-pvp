@@ -1,0 +1,35 @@
+{
+  "tests": [
+    {
+      "name": "CORS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Create room without player_id",
+      "method": "POST",
+      "path": "/?action=create",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "player_id required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Poll missing code",
+      "method": "GET",
+      "path": "/?action=poll",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "code required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Join missing code",
+      "method": "POST",
+      "path": "/?action=join&player_id=test123",
+      "body": {},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "code required"},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

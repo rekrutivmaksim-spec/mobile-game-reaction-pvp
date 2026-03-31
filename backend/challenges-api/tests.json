@@ -1,0 +1,26 @@
+{
+  "tests": [
+    {
+      "name": "CORS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Get challenges without player_id",
+      "method": "GET",
+      "path": "/?action=get",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "player_id required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get challenges for test player",
+      "method": "GET",
+      "path": "/?action=get&player_id=test-challenge-player-001",
+      "expectedStatus": 200,
+      "expectedBody": {},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

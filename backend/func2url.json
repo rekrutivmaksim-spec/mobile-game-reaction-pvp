@@ -1,3 +1,5 @@
 {
+  "challenges-api": "https://functions.poehali.dev/741e5a6a-988f-460f-a7a9-c35ed918cb69",
+  "duel-api": "https://functions.poehali.dev/fd904cf2-ca8c-4cda-9ec3-e5fb219c5102",
   "game-api": "https://functions.poehali.dev/7000f2b2-907e-4557-90a3-c4e459c83279"
 }

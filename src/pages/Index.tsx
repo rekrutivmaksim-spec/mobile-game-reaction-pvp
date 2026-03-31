@@ -1,13 +1,36 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
-import { getLeague, getNextLeague, getProgressToNext, getPressureMessage, LEAGUES } from "@/lib/leagues";
+import { getLeague, getProgressToNext, getPressureMessage } from "@/lib/leagues";
 
-const API = "https://functions.poehali.dev/7000f2b2-907e-4557-90a3-c4e459c83279";
+const API       = "https://functions.poehali.dev/7000f2b2-907e-4557-90a3-c4e459c83279";
+const DUEL_API  = "https://functions.poehali.dev/fd904cf2-ca8c-4cda-9ec3-e5fb219c5102";
+const CHALL_API = "https://functions.poehali.dev/741e5a6a-988f-460f-a7a9-c35ed918cb69";
 
 // ─────────────── TYPES ───────────────
-type Screen = "home" | "searching" | "game" | "result" | "leaderboard" | "profile";
+type Screen = "home" | "searching" | "game" | "result" | "leaderboard" | "profile" | "duel-lobby" | "duel-wait" | "challenges";
 type GamePhase = "wait" | "tension" | "action" | "done";
 type ResultType = "win" | "lose" | "false_start";
+
+interface DuelRoom {
+  id: string;
+  host_id: string;
+  guest_id: string | null;
+  status: "waiting" | "ready" | "finished" | "expired";
+  host_time: number | null;
+  guest_time: number | null;
+  winner_id: string | null;
+}
+
+interface Challenge {
+  id: number;
+  type: string;
+  title: string;
+  description: string;
+  target: number;
+  reward_coins: number;
+  progress: number;
+  completed: boolean;
+}
 
 interface Player {
   id: string;
@@ -33,6 +56,7 @@ interface MatchResult {
   prevLeagueId?: string;
   newLeagueId?: string;
   pressureMsg?: string;
+  nearMiss?: "edge" | "close";
 }
 
 interface LeaderboardEntry {
@@ -85,6 +109,18 @@ export default function Index() {
   const [neighbors, setNeighbors] = useState<LeaderboardEntry[]>([]);
   const [profileData, setProfileData] = useState<{ avg_reaction: number | null; winrate: number; percent_better: number; rank: number; total_players: number } | null>(null);
   const [loadingLB, setLoadingLB] = useState(false);
+
+  // Duel
+  const [duelRoom, setDuelRoom] = useState<DuelRoom | null>(null);
+  const [duelMode, setDuelMode] = useState<"host" | "guest">("host");
+  const [duelJoinCode, setDuelJoinCode] = useState("");
+  const [duelJoinError, setDuelJoinError] = useState("");
+  const [duelCopied, setDuelCopied] = useState(false);
+  const duelPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Challenges
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [challengeCoins, setChallengeCoins] = useState(0);
 
   const greenTimeRef = useRef<number>(0);
   const gameActiveRef = useRef(false);
@@ -200,6 +236,14 @@ export default function Index() {
     const didLeagueUp = newLeague.id !== prevLeague.id && newRatingVal > prevRating;
     const pressureMsg = getPressureMessage(newRatingVal, ratingDelta, isWin);
 
+    // Near Miss
+    let nearMiss: "edge" | "close" | undefined;
+    if (type !== "false_start" && playerMs > 0 && playerMs < 5000 && opponentMs > 0) {
+      const diff = Math.abs(playerMs - opponentMs);
+      if (diff < 20) nearMiss = "close";
+      else if (diff < 50) nearMiss = "edge";
+    }
+
     const newPlayer: Player = curPlayer ? {
       ...curPlayer,
       rating: newRatingVal,
@@ -225,10 +269,13 @@ export default function Index() {
       prevLeagueId: prevLeague.id,
       newLeagueId: newLeague.id,
       pressureMsg: pressureMsg ?? undefined,
+      nearMiss,
     });
 
     saveResult(type, playerMs > 0 && playerMs < 5000 ? playerMs : null, newPlayer!);
+    reportChallenge(type);
 
+    const delay = nearMiss ? 500 : 350;
     setTimeout(() => {
       setScreenFlash("none");
       setScreen("result");
@@ -242,8 +289,8 @@ export default function Index() {
           setTimeout(() => setLeagueUpVisible(false), 3200);
         }, 600);
       }
-    }, 350);
-  }, [clearAllTimers, saveResult]);
+    }, delay);
+  }, [clearAllTimers, saveResult, reportChallenge]);
 
   // ── START MATCH ──
   const startMatch = useCallback(() => {
@@ -345,6 +392,127 @@ export default function Index() {
 
   useEffect(() => { return () => clearAllTimers(); }, [clearAllTimers]);
 
+  // ── DUEL: создать комнату (хост) ──
+  const createDuelRoom = useCallback(() => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    fetch(`${DUEL_API}/?action=create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.room) {
+          setDuelRoom(d.room);
+          setDuelMode("host");
+          setScreen("duel-lobby");
+          // Поллинг — ждём гостя
+          duelPollRef.current = setInterval(() => {
+            fetch(`${DUEL_API}/?action=poll&code=${d.room.id}`)
+              .then(r => r.json())
+              .then(pd => {
+                if (pd.room) setDuelRoom(pd.room);
+                if (pd.room?.status === "ready" || pd.room?.status === "finished") {
+                  if (duelPollRef.current) clearInterval(duelPollRef.current);
+                }
+              });
+          }, 2000);
+        }
+      });
+  }, []);
+
+  // ── DUEL: войти в комнату (гость) ──
+  const joinDuelRoom = useCallback((code: string) => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    setDuelJoinError("");
+    fetch(`${DUEL_API}/?action=join`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+      body: JSON.stringify({ code: code.toUpperCase().trim() }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) { setDuelJoinError(d.error); return; }
+        if (d.room) {
+          setDuelRoom(d.room);
+          setDuelMode("guest");
+          setScreen("duel-lobby");
+        }
+      });
+  }, []);
+
+  // ── DUEL: отправить результат ──
+  const submitDuelResult = useCallback((reactionTime: number) => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid || !duelRoom) return;
+    fetch(`${DUEL_API}/?action=submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+      body: JSON.stringify({ code: duelRoom.id, reaction_time: reactionTime }),
+    })
+      .then(r => r.json())
+      .then(d => { if (d.room) setDuelRoom(d.room); });
+  }, [duelRoom]);
+
+  // ── DUEL: стоп поллинг ──
+  const stopDuelPoll = useCallback(() => {
+    if (duelPollRef.current) { clearInterval(duelPollRef.current); duelPollRef.current = null; }
+  }, []);
+
+  // ── DUEL: шаринг ──
+  const shareDuel = useCallback(() => {
+    if (!duelRoom || !player) return;
+    const url = `${window.location.origin}?duel=${duelRoom.id}`;
+    const text = `Я вызываю тебя! Сможешь не сломаться?\n${url}`;
+    if (navigator.share) {
+      navigator.share({ title: "НЕ СЛОМАЙСЯ", text, url });
+    } else {
+      navigator.clipboard.writeText(text);
+      setDuelCopied(true);
+      setTimeout(() => setDuelCopied(false), 2000);
+    }
+  }, [duelRoom, player]);
+
+  // ── CHALLENGES: загрузить ──
+  const loadChallenges = useCallback(() => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    fetch(`${CHALL_API}/?action=get&player_id=${pid}`)
+      .then(r => r.json())
+      .then(d => { if (d.challenges) setChallenges(d.challenges); });
+  }, []);
+
+  // ── CHALLENGES: репортнуть матч ──
+  const reportChallenge = useCallback((type: ResultType) => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    fetch(`${CHALL_API}/?action=report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+      body: JSON.stringify({ result: type }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.challenges) setChallenges(d.challenges);
+        if (d.coins_earned > 0) {
+          setChallengeCoins(d.coins_earned);
+          setTimeout(() => setChallengeCoins(0), 3000);
+          if (d.player) setPlayer(d.player);
+        }
+      });
+  }, []);
+
+  // Проверяем deep-link при загрузке
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const duelCode = params.get("duel");
+    if (duelCode) {
+      setDuelJoinCode(duelCode);
+      setScreen("duel-wait");
+    }
+  }, []);
+
   const getBgColor = () => {
     if (screenFlash === "red") return "#c0392b";
     if (screenFlash === "green") return "#00e676";
@@ -421,10 +589,11 @@ export default function Index() {
         </div>
 
         {/* Nav */}
-        <div className="flex gap-10 items-center">
+        <div className="flex gap-8 items-center">
           {[
             { icon: "Trophy", label: "Топ", action: () => { setScreen("leaderboard"); loadLeaderboard(); } },
-            { icon: "ShoppingBag", label: "Магазин", action: () => {} },
+            { icon: "Swords", label: "Дуэль", action: () => { setDuelJoinCode(""); setDuelJoinError(""); setScreen("duel-wait"); } },
+            { icon: "CalendarCheck", label: "Задания", action: () => { setScreen("challenges"); loadChallenges(); } },
             { icon: "User", label: "Профиль", action: () => { setScreen("profile"); loadProfile(); } },
           ].map(({ icon, label, action }) => (
             <button key={label} onClick={action} className="flex flex-col items-center gap-1.5 transition-opacity active:opacity-60" style={{ opacity: 0.35 }}>
@@ -506,14 +675,23 @@ export default function Index() {
     const isWin = result.type === "win";
     const isFalseStart = result.type === "false_start";
     const accentColor = isWin ? "#00e676" : "#c0392b";
-    const titleText = isFalseStart ? "ТЫ СЛОМАЛСЯ" : isWin ? "ТЫ ВЫДЕРЖАЛ" : "ОН ВЫДЕРЖАЛ";
-    const subtitleText = isFalseStart ? "нажал слишком рано — фальстарт" : isWin ? `ты быстрее на ${Math.round(result.opponentTime - result.playerTime)}мс` : "соперник оказался быстрее";
+    const nearMissText = result.nearMiss === "close"
+      ? `${Math.abs(result.playerTime - result.opponentTime)}мс — ты был в шаге`
+      : result.nearMiss === "edge"
+      ? "Почти… разница минимальная"
+      : null;
+    const titleText = isFalseStart ? "ТЫ СЛОМАЛСЯ"
+      : result.nearMiss === "close" ? (isWin ? "НА ГРАНИ!" : "НА ГРАНИ…")
+      : isWin ? "ТЫ ВЫДЕРЖАЛ" : "ОН ВЫДЕРЖАЛ";
+    const subtitleText = isFalseStart ? "нажал слишком рано — фальстарт"
+      : isWin ? `ты быстрее на ${Math.round(result.opponentTime - result.playerTime)}мс`
+      : "соперник оказался быстрее";
 
     return (
       <div className="relative flex flex-col items-center justify-between h-dvh w-full px-6 py-12 overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
         <div className="absolute top-[-60px] left-1/2 -translate-x-1/2 w-72 h-72 rounded-full blur-3xl pointer-events-none" style={{ backgroundColor: accentColor, opacity: 0.08 }} />
         <div />
-        <div className="flex flex-col items-center gap-6 animate-result-in w-full">
+        <div className="flex flex-col items-center gap-5 animate-result-in w-full">
           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: accentColor, boxShadow: `0 0 20px ${accentColor}` }} />
           <div className="flex flex-col items-center gap-2">
             <span className={`font-oswald font-bold uppercase text-center leading-none ${isWin ? "animate-win-glow" : "animate-lose-glow"}`} style={{ fontSize: "clamp(2.5rem, 12vw, 4rem)", color: accentColor }}>
@@ -521,6 +699,14 @@ export default function Index() {
             </span>
             <span className="font-rubik text-sm text-center" style={{ color: "rgba(255,255,255,0.3)" }}>{subtitleText}</span>
           </div>
+
+          {/* Near Miss */}
+          {nearMissText && (
+            <div className="w-full border px-4 py-2.5 flex items-center gap-2.5 animate-result-in" style={{ borderColor: "rgba(255,255,255,0.2)", backgroundColor: "rgba(255,255,255,0.04)" }}>
+              <span className="text-base">⚡</span>
+              <span className="font-oswald text-sm tracking-wider uppercase" style={{ color: "#f5f5f5" }}>{nearMissText}</span>
+            </div>
+          )}
 
           {/* Percent better */}
           {result.percentBetter !== undefined && (
@@ -613,7 +799,15 @@ export default function Index() {
           <button onClick={startMatch} className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase transition-all active:scale-95" style={{ backgroundColor: accentColor, color: isWin ? "#0f0f0f" : "#f5f5f5" }}>
             ЕЩЁ РАЗ
           </button>
-          <button onClick={() => setScreen("home")} className="w-full h-12 font-oswald text-sm tracking-[0.15em] uppercase transition-all active:scale-95" style={{ backgroundColor: "transparent", color: "rgba(255,255,255,0.25)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <button
+            onClick={() => { setDuelJoinCode(""); setDuelJoinError(""); createDuelRoom(); }}
+            className="w-full h-12 font-oswald text-sm tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+            style={{ backgroundColor: "transparent", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.15)" }}
+          >
+            <Icon name="Swords" size={14} />
+            ВЫЗВАТЬ ДРУГА
+          </button>
+          <button onClick={() => setScreen("home")} className="w-full h-10 font-oswald text-xs tracking-[0.15em] uppercase transition-all active:scale-95" style={{ backgroundColor: "transparent", color: "rgba(255,255,255,0.2)", border: "1px solid rgba(255,255,255,0.05)" }}>
             ГЛАВНЫЙ ЭКРАН
           </button>
         </div>
@@ -799,6 +993,215 @@ export default function Index() {
               </span>
             </div>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── DUEL WAIT (ввод кода) ──
+  if (screen === "duel-wait") {
+    return (
+      <div className="flex flex-col h-dvh w-full px-6 py-10 overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
+        <div className="flex items-center gap-4 pb-8">
+          <button onClick={() => setScreen("home")} className="active:opacity-60 transition-opacity">
+            <Icon name="ArrowLeft" size={20} style={{ color: "rgba(255,255,255,0.5)" }} />
+          </button>
+          <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white">Дуэль с другом</h2>
+        </div>
+
+        <div className="flex flex-col gap-8 flex-1 justify-center">
+          {/* Создать комнату */}
+          <div className="border p-5 flex flex-col gap-4" style={{ borderColor: "rgba(192,57,43,0.3)", backgroundColor: "rgba(192,57,43,0.04)" }}>
+            <div className="flex flex-col gap-1">
+              <span className="font-oswald text-lg font-bold uppercase text-white">Вызвать друга</span>
+              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Создай комнату и отправь ссылку другу</span>
+            </div>
+            <button
+              onClick={createDuelRoom}
+              className="w-full h-12 font-oswald text-base font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+              style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}
+            >
+              <Icon name="Swords" size={16} />
+              СОЗДАТЬ ДУЭЛЬ
+            </button>
+          </div>
+
+          {/* Войти по коду */}
+          <div className="border p-5 flex flex-col gap-4" style={{ borderColor: "rgba(255,255,255,0.08)", backgroundColor: "rgba(255,255,255,0.02)" }}>
+            <div className="flex flex-col gap-1">
+              <span className="font-oswald text-lg font-bold uppercase text-white">Принять вызов</span>
+              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Введи код из ссылки друга</span>
+            </div>
+            <input
+              type="text"
+              value={duelJoinCode}
+              onChange={e => setDuelJoinCode(e.target.value.toUpperCase())}
+              placeholder="XXXXXX"
+              maxLength={6}
+              className="w-full h-12 px-4 font-oswald text-xl text-center tracking-[0.4em] outline-none"
+              style={{ backgroundColor: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", color: "#f5f5f5" }}
+            />
+            {duelJoinError && (
+              <span className="font-rubik text-sm text-center" style={{ color: "#c0392b" }}>{duelJoinError}</span>
+            )}
+            <button
+              onClick={() => joinDuelRoom(duelJoinCode)}
+              disabled={duelJoinCode.length < 4}
+              className="w-full h-12 font-oswald text-base font-bold tracking-[0.15em] uppercase transition-all active:scale-95"
+              style={{ backgroundColor: duelJoinCode.length >= 4 ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.04)", color: duelJoinCode.length >= 4 ? "#f5f5f5" : "rgba(255,255,255,0.25)", border: "1px solid rgba(255,255,255,0.1)" }}
+            >
+              ВОЙТИ
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── DUEL LOBBY (комната создана / ожидание) ──
+  if (screen === "duel-lobby" && duelRoom) {
+    const pid = localStorage.getItem("ne_slomaisa_player_id") || "";
+    const isReady = duelRoom.status === "ready";
+    const isFinished = duelRoom.status === "finished";
+
+    return (
+      <div className="flex flex-col items-center justify-between h-dvh w-full px-6 py-12 overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
+        <button onClick={() => { stopDuelPoll(); setScreen("home"); }} className="self-start active:opacity-60">
+          <Icon name="ArrowLeft" size={20} style={{ color: "rgba(255,255,255,0.5)" }} />
+        </button>
+
+        <div className="flex flex-col items-center gap-6 w-full">
+          {/* Код комнаты */}
+          <div className="flex flex-col items-center gap-2">
+            <span className="font-rubik text-[10px] uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.3)" }}>Код дуэли</span>
+            <span className="font-oswald text-5xl font-bold tracking-[0.3em]" style={{ color: "#c0392b" }}>{duelRoom.id}</span>
+          </div>
+
+          {/* Статус */}
+          {!isReady && !isFinished && (
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex gap-1.5">
+                {[0, 1, 2].map(i => (
+                  <div key={i} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "#c0392b", animation: `pulse 1.2s ease-in-out ${i * 0.25}s infinite` }} />
+                ))}
+              </div>
+              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.35)" }}>Ждём соперника…</span>
+            </div>
+          )}
+
+          {isReady && (
+            <div className="border px-6 py-3 flex items-center gap-2" style={{ borderColor: "#00e676", backgroundColor: "rgba(0,230,118,0.06)" }}>
+              <span className="text-base">✅</span>
+              <span className="font-oswald text-base font-bold uppercase" style={{ color: "#00e676" }}>Соперник подключился!</span>
+            </div>
+          )}
+
+          {/* Шаринг */}
+          <div className="w-full flex flex-col gap-3">
+            <button
+              onClick={shareDuel}
+              className="w-full h-12 font-oswald text-sm tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+              style={{ backgroundColor: "rgba(255,255,255,0.07)", color: "#f5f5f5", border: "1px solid rgba(255,255,255,0.12)" }}
+            >
+              <Icon name="Share2" size={14} />
+              {duelCopied ? "СКОПИРОВАНО!" : "ПОДЕЛИТЬСЯ ССЫЛКОЙ"}
+            </button>
+          </div>
+        </div>
+
+        {/* Кнопка начать — только когда оба готовы */}
+        {isReady && (
+          <button
+            onClick={() => { stopDuelPoll(); startMatch(); }}
+            className="w-full h-14 font-oswald text-xl font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
+            style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}
+          >
+            НАЧАТЬ ДУЭЛЬ
+          </button>
+        )}
+        {!isReady && <div />}
+      </div>
+    );
+  }
+
+  // ── CHALLENGES ──
+  if (screen === "challenges") {
+    const total = challenges.length;
+    const done = challenges.filter(c => c.completed).length;
+    return (
+      <div className="flex flex-col h-dvh w-full overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
+        <div className="flex items-center gap-4 px-6 pt-10 pb-4">
+          <button onClick={() => setScreen("home")} className="active:opacity-60 transition-opacity">
+            <Icon name="ArrowLeft" size={20} style={{ color: "rgba(255,255,255,0.5)" }} />
+          </button>
+          <div className="flex-1">
+            <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white">Задания дня</h2>
+            <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.3)" }}>
+              Обновляются каждый день
+            </span>
+          </div>
+          {done === total && total > 0 && (
+            <span className="font-oswald text-sm font-bold" style={{ color: "#00e676" }}>ВСЁ!</span>
+          )}
+        </div>
+
+        {/* Награда за завершение */}
+        {challengeCoins > 0 && (
+          <div className="mx-6 mb-3 border px-4 py-2.5 flex items-center gap-2 animate-result-in" style={{ borderColor: "#f39c12", backgroundColor: "rgba(243,156,18,0.07)" }}>
+            <span className="text-lg">🎁</span>
+            <span className="font-oswald text-base font-bold uppercase" style={{ color: "#f39c12" }}>+{challengeCoins}⚡ получено!</span>
+          </div>
+        )}
+
+        <div className="flex-1 px-6 pb-8 flex flex-col gap-3 overflow-y-auto">
+          {challenges.length === 0 ? (
+            <div className="flex flex-col items-center pt-16 gap-3">
+              <Icon name="CalendarCheck" size={32} style={{ color: "rgba(255,255,255,0.1)" }} />
+              <span className="font-rubik text-sm text-center" style={{ color: "rgba(255,255,255,0.25)" }}>Загружаем задания…</span>
+            </div>
+          ) : (
+            challenges.map(c => (
+              <div key={c.id} className="border p-4 flex flex-col gap-3" style={{
+                borderColor: c.completed ? "rgba(0,230,118,0.3)" : "rgba(255,255,255,0.07)",
+                backgroundColor: c.completed ? "rgba(0,230,118,0.04)" : "rgba(255,255,255,0.02)",
+              }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col gap-0.5 flex-1">
+                    <span className="font-oswald text-base font-bold uppercase" style={{ color: c.completed ? "#00e676" : "#f5f5f5" }}>
+                      {c.completed ? "✓ " : ""}{c.title}
+                    </span>
+                    <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>{c.description}</span>
+                  </div>
+                  <div className="flex flex-col items-end gap-0.5 shrink-0">
+                    <span className="font-oswald text-sm font-bold" style={{ color: "#f39c12" }}>+{c.reward_coins}⚡</span>
+                  </div>
+                </div>
+                {/* Прогресс */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between">
+                    <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>{c.progress} / {c.target}</span>
+                    <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>{Math.round((c.progress / c.target) * 100)}%</span>
+                  </div>
+                  <div className="relative w-full h-1 rounded-full overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.06)" }}>
+                    <div
+                      className="absolute left-0 top-0 h-full rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min(100, (c.progress / c.target) * 100)}%`, backgroundColor: c.completed ? "#00e676" : "#c0392b" }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="px-6 pb-8">
+          <button
+            onClick={() => { setScreen("home"); startMatch(); }}
+            className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
+            style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}
+          >
+            ИГРАТЬ
+          </button>
         </div>
       </div>
     );
