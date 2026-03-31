@@ -29,7 +29,7 @@
       "method": "GET",
       "path": "/?action=leaderboard",
       "expectedStatus": 200,
-      "expectedBody": {"top": []},
+      "expectedBody": {"neighbors": []},
       "bodyMatcher": "partial"
     },
     {

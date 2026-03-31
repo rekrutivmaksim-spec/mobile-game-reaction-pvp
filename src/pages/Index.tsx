@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
+import { getLeague, getNextLeague, getProgressToNext, getPressureMessage, LEAGUES } from "@/lib/leagues";
 
 const API = "https://functions.poehali.dev/7000f2b2-907e-4557-90a3-c4e459c83279";
 
@@ -29,6 +30,9 @@ interface MatchResult {
   newStreak: number;
   percentBetter?: number;
   rank?: number;
+  prevLeagueId?: string;
+  newLeagueId?: string;
+  pressureMsg?: string;
 }
 
 interface LeaderboardEntry {
@@ -63,6 +67,12 @@ export default function Index() {
   const [result, setResult] = useState<MatchResult | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
   const [playerId, setPlayerId] = useState<string>("");
+
+  // League-up overlay
+  const [leagueUpVisible, setLeagueUpVisible] = useState(false);
+  const [leagueUpName, setLeagueUpName] = useState("");
+  const [leagueUpColor, setLeagueUpColor] = useState("#f39c12");
+  const [leagueUpIcon, setLeagueUpIcon] = useState("🥇");
 
   // Tension
   const [fakeFlash, setFakeFlash] = useState(false);
@@ -183,9 +193,16 @@ export default function Index() {
     const streakBonus = newStreak >= 5 ? 2 : 1;
     const coins_earned = (isWin ? 20 : 5) * streakBonus;
 
+    const prevRating = curPlayer?.rating ?? 1000;
+    const newRatingVal = Math.max(0, prevRating + ratingDelta);
+    const prevLeague = getLeague(prevRating);
+    const newLeague = getLeague(newRatingVal);
+    const didLeagueUp = newLeague.id !== prevLeague.id && newRatingVal > prevRating;
+    const pressureMsg = getPressureMessage(newRatingVal, ratingDelta, isWin);
+
     const newPlayer: Player = curPlayer ? {
       ...curPlayer,
-      rating: Math.max(0, curPlayer.rating + ratingDelta),
+      rating: newRatingVal,
       wins: curPlayer.wins + (isWin ? 1 : 0),
       losses: curPlayer.losses + (isWin ? 0 : 1),
       streak: newStreak,
@@ -205,6 +222,9 @@ export default function Index() {
       ratingChange: ratingDelta,
       coinsEarned: coins_earned,
       newStreak,
+      prevLeagueId: prevLeague.id,
+      newLeagueId: newLeague.id,
+      pressureMsg: pressureMsg ?? undefined,
     });
 
     saveResult(type, playerMs > 0 && playerMs < 5000 ? playerMs : null, newPlayer!);
@@ -212,6 +232,16 @@ export default function Index() {
     setTimeout(() => {
       setScreenFlash("none");
       setScreen("result");
+      if (didLeagueUp) {
+        setTimeout(() => {
+          setLeagueUpName(newLeague.name);
+          setLeagueUpColor(newLeague.color);
+          setLeagueUpIcon(newLeague.icon);
+          setLeagueUpVisible(true);
+          if (navigator.vibrate) navigator.vibrate([100, 80, 200]);
+          setTimeout(() => setLeagueUpVisible(false), 3200);
+        }, 600);
+      }
     }, 350);
   }, [clearAllTimers, saveResult]);
 
@@ -327,6 +357,8 @@ export default function Index() {
   const rating = player?.rating ?? 1000;
   const streak = player?.streak ?? 0;
   const coins = player?.coins ?? 150;
+  const currentLeague = getLeague(rating);
+  const leagueProgress = getProgressToNext(rating);
 
   // ═══════════════════ SCREENS ═══════════════════
 
@@ -339,20 +371,54 @@ export default function Index() {
         ))}
 
         {/* Stats */}
-        <div className="w-full flex items-center justify-between animate-fade-in">
-          <div className="flex flex-col gap-0.5">
-            <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Рейтинг</span>
-            <span className="font-oswald text-2xl font-bold text-white">{rating}</span>
+        <div className="w-full flex flex-col gap-3 animate-fade-in">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-0.5">
+              <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Рейтинг</span>
+              <span className="font-oswald text-2xl font-bold text-white">{rating}</span>
+            </div>
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Серия</span>
+              <span className="font-oswald text-2xl font-bold" style={{ color: streak > 0 ? "#f39c12" : "rgba(255,255,255,0.2)" }}>
+                {streak > 0 ? `🔥 ${streak}` : "—"}
+              </span>
+            </div>
+            <div className="flex flex-col items-end gap-0.5">
+              <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Монеты</span>
+              <span className="font-oswald text-2xl font-bold" style={{ color: "#f39c12" }}>⚡{coins}</span>
+            </div>
           </div>
-          <div className="flex flex-col items-center gap-0.5">
-            <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Серия</span>
-            <span className="font-oswald text-2xl font-bold" style={{ color: streak > 0 ? "#f39c12" : "rgba(255,255,255,0.2)" }}>
-              {streak > 0 ? `🔥 ${streak}` : "—"}
-            </span>
-          </div>
-          <div className="flex flex-col items-end gap-0.5">
-            <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Монеты</span>
-            <span className="font-oswald text-2xl font-bold" style={{ color: "#f39c12" }}>⚡{coins}</span>
+
+          {/* League bar */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-base leading-none">{currentLeague.icon}</span>
+                <span
+                  className="font-oswald text-sm font-bold uppercase tracking-wider"
+                  style={{ color: currentLeague.color, textShadow: currentLeague.animated ? `0 0 12px ${currentLeague.color}` : "none" }}
+                >
+                  {currentLeague.name}
+                </span>
+              </div>
+              {leagueProgress.next ? (
+                <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>
+                  до {leagueProgress.next.name}: {leagueProgress.pointsLeft}
+                </span>
+              ) : (
+                <span className="font-rubik text-[10px]" style={{ color: currentLeague.color }}>Максимум</span>
+              )}
+            </div>
+            <div className="relative w-full h-1 rounded-full overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.07)" }}>
+              <div
+                className="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${leagueProgress.pct}%`,
+                  backgroundColor: currentLeague.color,
+                  boxShadow: `0 0 6px ${currentLeague.glowColor}`,
+                }}
+              />
+            </div>
           </div>
         </div>
 
@@ -545,6 +611,33 @@ export default function Index() {
               x2 НАГРАДА · СЕРИЯ {result.newStreak}
             </div>
           )}
+
+          {/* League changed */}
+          {result.newLeagueId && result.prevLeagueId && result.newLeagueId !== result.prevLeagueId && (() => {
+            const nl = getLeague(player?.rating ?? 1000);
+            return (
+              <div className="w-full border p-3 flex items-center gap-3" style={{ borderColor: nl.color, backgroundColor: `${nl.glowColor.replace("0.4", "0.08")}` }}>
+                <span className="text-2xl">{nl.icon}</span>
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-oswald text-sm font-bold uppercase" style={{ color: nl.color }}>Ты поднялся в {nl.name}!</span>
+                  <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.3)" }}>Новая лига разблокирована</span>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Pressure message */}
+          {result.pressureMsg && (
+            <div className="w-full border px-4 py-2.5 flex items-center gap-2.5" style={{
+              borderColor: result.pressureMsg.includes("вылететь") ? "rgba(192,57,43,0.5)" : "rgba(243,156,18,0.5)",
+              backgroundColor: result.pressureMsg.includes("вылететь") ? "rgba(192,57,43,0.06)" : "rgba(243,156,18,0.06)",
+            }}>
+              <span className="text-base">{result.pressureMsg.includes("вылететь") ? "⚠️" : "⚡"}</span>
+              <span className="font-rubik text-sm" style={{ color: result.pressureMsg.includes("вылететь") ? "#c0392b" : "#f39c12" }}>
+                {result.pressureMsg}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-3 w-full">
@@ -605,6 +698,7 @@ export default function Index() {
               {leaderboard.map((entry, idx) => {
                 const isMe = entry.id === playerId;
                 const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : null;
+                const entryLeague = getLeague(entry.rating);
                 return (
                   <div
                     key={entry.id}
@@ -620,8 +714,8 @@ export default function Index() {
                     <span className="font-rubik text-sm flex-1" style={{ color: isMe ? "#f5f5f5" : "rgba(255,255,255,0.55)", fontWeight: isMe ? 500 : 400 }}>
                       {entry.nickname}
                     </span>
-                    <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.2)" }}>{entry.wins}W</span>
-                    <span className="font-oswald text-base font-bold ml-2" style={{ color: isMe ? "#c0392b" : "rgba(255,255,255,0.5)" }}>{entry.rating}</span>
+                    <span className="text-sm">{entryLeague.icon}</span>
+                    <span className="font-oswald text-base font-bold" style={{ color: isMe ? "#c0392b" : entryLeague.color }}>{entry.rating}</span>
                   </div>
                 );
               })}
@@ -635,6 +729,8 @@ export default function Index() {
   // ── PROFILE ──
   if (screen === "profile") {
     const totalGames = (player?.wins ?? 0) + (player?.losses ?? 0);
+    const profLeague = getLeague(rating);
+    const profProgress = getProgressToNext(rating);
     return (
       <div className="flex flex-col h-dvh w-full overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
         <div className="flex items-center gap-4 px-6 pt-10 pb-6">
@@ -645,15 +741,40 @@ export default function Index() {
         </div>
 
         <div className="flex-1 px-6 flex flex-col gap-4 overflow-y-auto pb-8">
-          {/* Name + rating */}
-          <div className="border p-5 flex flex-col gap-1" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
-            <span className="font-oswald text-2xl font-bold text-white">{player?.nickname ?? "—"}</span>
-            <div className="flex items-center gap-2 mt-1">
+          {/* Name + rating + league */}
+          <div className="border p-5 flex flex-col gap-2" style={{ borderColor: profLeague.color + "40", backgroundColor: "rgba(255,255,255,0.02)" }}>
+            <div className="flex items-center justify-between">
+              <span className="font-oswald text-2xl font-bold text-white">{player?.nickname ?? "—"}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xl">{profLeague.icon}</span>
+                <span className="font-oswald text-base font-bold uppercase" style={{ color: profLeague.color }}>{profLeague.name}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
               <span className="font-oswald text-4xl font-bold" style={{ color: "#c0392b" }}>{rating}</span>
               <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.3)" }}>ELO</span>
             </div>
+            {/* Progress bar in profile */}
+            <div className="flex flex-col gap-1">
+              <div className="flex justify-between">
+                <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>
+                  {profLeague.name} {profLeague.minRating}
+                </span>
+                {profProgress.next && (
+                  <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>
+                    {profProgress.next.name} {profProgress.next.minRating} · ещё {profProgress.pointsLeft}
+                  </span>
+                )}
+              </div>
+              <div className="relative w-full h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.07)" }}>
+                <div
+                  className="absolute left-0 top-0 h-full rounded-full"
+                  style={{ width: `${profProgress.pct}%`, backgroundColor: profLeague.color, boxShadow: `0 0 8px ${profLeague.glowColor}` }}
+                />
+              </div>
+            </div>
             {profileData && (
-              <span className="font-rubik text-sm mt-1" style={{ color: "#f39c12" }}>
+              <span className="font-rubik text-sm mt-0.5" style={{ color: "#f39c12" }}>
                 Ты быстрее {profileData.percent_better}% игроков · #{profileData.rank} в мире
               </span>
             )}
@@ -714,5 +835,38 @@ export default function Index() {
     );
   }
 
-  return null;
+  // ── LEAGUE-UP OVERLAY (глобальный, поверх всего) ──
+  return (
+    <>
+      {leagueUpVisible && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
+          style={{ backgroundColor: "rgba(0,0,0,0.85)" }}
+        >
+          <div
+            className="flex flex-col items-center gap-5 animate-result-in"
+            style={{ filter: `drop-shadow(0 0 40px ${leagueUpColor})` }}
+          >
+            <span className="text-7xl">{leagueUpIcon}</span>
+            <div className="flex flex-col items-center gap-2">
+              <span className="font-rubik text-sm uppercase tracking-[0.4em]" style={{ color: "rgba(255,255,255,0.5)" }}>
+                Новая лига
+              </span>
+              <span
+                className="font-oswald font-bold uppercase"
+                style={{
+                  fontSize: "clamp(3rem, 15vw, 5rem)",
+                  color: leagueUpColor,
+                  textShadow: `0 0 30px ${leagueUpColor}, 0 0 60px ${leagueUpColor}`,
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                {leagueUpName}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }

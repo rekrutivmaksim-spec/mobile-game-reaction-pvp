@@ -12,6 +12,20 @@ from psycopg2.extras import RealDictCursor
 
 SCHEMA = "t_p67729910_mobile_game_reaction"
 
+LEAGUES = [
+    {"id": "bronze",  "name": "Бронза",  "min": 0,    "max": 999},
+    {"id": "silver",  "name": "Серебро", "min": 1000, "max": 1399},
+    {"id": "gold",    "name": "Золото",  "min": 1400, "max": 1799},
+    {"id": "plat",    "name": "Платина", "min": 1800, "max": 2199},
+    {"id": "legend",  "name": "Легенда", "min": 2200, "max": 999999},
+]
+
+def get_league(rating: int) -> dict:
+    for lg in reversed(LEAGUES):
+        if rating >= lg["min"]:
+            return lg
+    return LEAGUES[0]
+
 CORS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -138,6 +152,9 @@ def handler(event: dict, context) -> dict:
         avg_reaction = int(updated["total_reaction"] / updated["reaction_count"]) if updated["reaction_count"] > 0 else None
         percent_better = round((1 - (rank - 1) / max(total, 1)) * 100) if total > 1 else 100
 
+        prev_league = get_league(player["rating"])
+        new_league = get_league(new_rating)
+
         return resp(200, {
             "player": updated,
             "rank": rank,
@@ -146,6 +163,8 @@ def handler(event: dict, context) -> dict:
             "rating_delta": rating_delta,
             "coins_earned": coins_earned,
             "avg_reaction": avg_reaction,
+            "prev_league": prev_league["id"],
+            "new_league": new_league["id"],
         })
 
     # ── GET /leaderboard ──
@@ -219,6 +238,8 @@ def handler(event: dict, context) -> dict:
         winrate = round(player["wins"] / total_matches * 100) if total_matches > 0 else 0
         percent_better = round((1 - (rank - 1) / max(total, 1)) * 100) if total > 1 else 100
 
+        league = get_league(player["rating"])
+
         return resp(200, {
             "player": player,
             "rank": rank,
@@ -226,6 +247,7 @@ def handler(event: dict, context) -> dict:
             "avg_reaction": avg_reaction,
             "winrate": winrate,
             "percent_better": percent_better,
+            "league": league,
         })
 
     return resp(404, {"error": "not found"})
