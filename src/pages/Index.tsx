@@ -687,8 +687,13 @@ export default function Index() {
 
   // ── HOME ──
   if (screen === "home") {
+    const totalGames = (player?.wins ?? 0) + (player?.losses ?? 0);
+    const hasPlayed = totalGames > 0;
+    const btnLabel = hasPlayed ? "ЕЩЁ РАЗ" : "ПРОВЕРЬ СЕБЯ";
+
     return (
       <div className="relative flex flex-col items-center justify-between h-dvh w-full px-6 py-10 overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
+        {/* Угловые декоры */}
         {["top-4 left-4 border-l-2 border-t-2", "top-4 right-4 border-r-2 border-t-2", "bottom-4 left-4 border-l-2 border-b-2", "bottom-4 right-4 border-r-2 border-b-2"].map((cls, i) => (
           <div key={i} className={`absolute w-6 h-6 ${cls}`} style={{ borderColor: "rgba(192,57,43,0.35)" }} />
         ))}
@@ -704,9 +709,11 @@ export default function Index() {
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Серия</span>
-            <span className="font-oswald text-2xl font-bold" style={{ color: streak > 0 ? "#f39c12" : "rgba(255,255,255,0.2)" }}>
-              {streak > 0 ? `🔥 ${streak}` : "—"}
-            </span>
+            {streak > 0 ? (
+              <span className="font-oswald text-2xl font-bold" style={{ color: "#f39c12" }}>🔥 {streak}</span>
+            ) : (
+              <span className="font-rubik text-[10px] text-center leading-tight" style={{ color: "rgba(255,255,255,0.2)", maxWidth: "60px" }}>первая победа</span>
+            )}
           </div>
           <div className="flex flex-col items-end gap-0.5">
             <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Монеты</span>
@@ -715,32 +722,65 @@ export default function Index() {
         </div>
 
         {/* Hero */}
-        <div className="flex flex-col items-center gap-6">
+        <div className="flex flex-col items-center gap-5 w-full">
+
+          {/* Заголовок */}
           <div className="relative flex flex-col items-center">
-            <div className="absolute w-56 h-56 rounded-full blur-3xl pointer-events-none" style={{ backgroundColor: "#c0392b", opacity: 0.07 }} />
-            <div className="relative z-10 border px-6 py-1.5 mb-5" style={{ borderColor: "rgba(192,57,43,0.5)" }}>
+            <div className="absolute w-64 h-64 rounded-full blur-3xl pointer-events-none" style={{ backgroundColor: "#c0392b", opacity: 0.08 }} />
+            <div className="relative z-10 border px-5 py-1 mb-4" style={{ borderColor: "rgba(192,57,43,0.45)" }}>
               <span className="font-rubik text-[10px] tracking-[0.4em] uppercase" style={{ color: "#c0392b" }}>PvP · 1 НА 1</span>
             </div>
-            <h1 className="relative z-10 font-oswald leading-[0.9] font-bold uppercase" style={{ fontSize: "clamp(3.5rem, 18vw, 5.5rem)", color: "#f5f5f5", letterSpacing: "-0.02em" }}>НЕ</h1>
-            <h1 className="relative z-10 font-oswald leading-[0.9] font-bold uppercase" style={{ fontSize: "clamp(3.5rem, 18vw, 5.5rem)", color: "#c0392b", letterSpacing: "-0.02em" }}>СЛОМАЙСЯ</h1>
-            <p className="relative z-10 font-rubik text-sm text-center mt-5 leading-relaxed" style={{ color: "rgba(255,255,255,0.3)", maxWidth: "220px" }}>
-              Нажми точно в момент сигнала.<br />Не раньше. Кто быстрее — победит.
-            </p>
+            <h1 className="relative z-10 font-oswald leading-[0.88] font-bold uppercase" style={{ fontSize: "clamp(3.5rem, 18vw, 5.5rem)", color: "#f5f5f5", letterSpacing: "-0.02em" }}>НЕ</h1>
+            <h1 className="relative z-10 font-oswald leading-[0.88] font-bold uppercase" style={{ fontSize: "clamp(3.5rem, 18vw, 5.5rem)", color: "#c0392b", letterSpacing: "-0.02em" }}>СЛОМАЙСЯ</h1>
           </div>
 
-          {player && (
-            <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.18)" }}>
-              {player.nickname} · {player.wins + player.losses} матчей
+          {/* Вызов */}
+          <div className="flex flex-col items-center gap-1.5">
+            <span
+              className="font-oswald text-base uppercase tracking-wider text-center"
+              style={{ color: "rgba(255,255,255,0.55)", animation: "pulse 3s ease-in-out infinite" }}
+            >
+              90% игроков ломаются
             </span>
-          )}
+            {/* Персональный триггер */}
+            {profileData && (
+              <span className="font-rubik text-xs text-center" style={{ color: "#f39c12" }}>
+                ты быстрее {profileData.percent_better}% игроков
+              </span>
+            )}
+            {!profileData && player && player.best_reaction && (
+              <span className="font-rubik text-xs text-center" style={{ color: "rgba(255,255,255,0.25)" }}>
+                лучшая реакция: {player.best_reaction} мс
+              </span>
+            )}
+            {!profileData && !player?.best_reaction && (
+              <span className="font-rubik text-xs text-center" style={{ color: "rgba(255,255,255,0.2)" }}>
+                {player?.nickname ?? "Игрок"} · готов к бою?
+              </span>
+            )}
+          </div>
 
-          <button
-            onClick={startMatch}
-            className="w-full max-w-xs h-16 font-oswald text-xl font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
-            style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}
-          >
-            ИГРАТЬ
-          </button>
+          {/* Кнопка + давление */}
+          <div className="flex flex-col items-center gap-2 w-full max-w-xs">
+            <span
+              className="font-rubik text-[11px] uppercase tracking-widest"
+              style={{ color: "rgba(255,255,255,0.2)", animation: "pulse 2.5s ease-in-out infinite" }}
+            >
+              ошибка = поражение
+            </span>
+            <button
+              onClick={startMatch}
+              className="w-full h-16 font-oswald text-xl font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
+              style={{
+                backgroundColor: "#c0392b",
+                color: "#f5f5f5",
+                boxShadow: "0 0 30px rgba(192,57,43,0.4)",
+                animation: "pulse 2.5s ease-in-out infinite",
+              }}
+            >
+              {btnLabel}
+            </button>
+          </div>
         </div>
 
         {/* Nav */}
