@@ -138,6 +138,15 @@ export default function Index() {
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [challengeCoins, setChallengeCoins] = useState(0);
 
+  // Nickname edit
+  const [nickEditing, setNickEditing] = useState(false);
+  const [nickValue, setNickValue] = useState("");
+  const [nickError, setNickError] = useState("");
+  const [nickSaving, setNickSaving] = useState(false);
+
+  // Save progress prompt (мягкая регистрация — пока только ник)
+  const [savePrompt, setSavePrompt] = useState(false);
+
   // Shop
   const [shopItems, setShopItems] = useState<ShopItem[]>([]);
   const [shopInventory, setShopInventory] = useState<Record<string, { quantity: number; equipped: boolean }>>({});
@@ -348,7 +357,17 @@ export default function Index() {
           setLeagueUpVisible(true);
           if (navigator.vibrate) navigator.vibrate([100, 80, 200]);
           setTimeout(() => setLeagueUpVisible(false), 3200);
+          // Мягкий промпт: ап лиги — хороший момент предложить задать ник
+          const nick = playerRef.current?.nickname ?? "";
+          const isGenerated = /^(Зверь|Железный|Молния|Призрак|Ракета|Тень|Коршун|Тигр|Волк|Дракон)\d+$/.test(nick);
+          if (isGenerated) setTimeout(() => setSavePrompt(true), 3500);
         }, 600);
+      }
+      // Серия 3+ — тоже предлагаем задать ник
+      if (newStreak >= 3) {
+        const nick = playerRef.current?.nickname ?? "";
+        const isGenerated = /^(Зверь|Железный|Молния|Призрак|Ракета|Тень|Коршун|Тигр|Волк|Дракон)\d+$/.test(nick);
+        if (isGenerated) setTimeout(() => setSavePrompt(true), 800);
       }
     }, delay);
   }, [clearAllTimers, saveResult, reportChallenge]);
@@ -452,6 +471,30 @@ export default function Index() {
   }, []);
 
   useEffect(() => { return () => clearAllTimers(); }, [clearAllTimers]);
+
+  // ── RENAME NICKNAME ──
+  const saveNickname = useCallback(() => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    const nick = nickValue.trim();
+    if (nick.length < 2 || nick.length > 20) {
+      setNickError("От 2 до 20 символов");
+      return;
+    }
+    setNickSaving(true);
+    setNickError("");
+    fetch(`${API}/?action=rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+      body: JSON.stringify({ nickname: nick }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) { setNickError(d.error); return; }
+        if (d.player) { setPlayer(d.player); setNickEditing(false); setSavePrompt(false); }
+      })
+      .finally(() => setNickSaving(false));
+  }, [nickValue]);
 
   // ── DUEL: создать комнату (хост) ──
   const createDuelRoom = useCallback(() => {
@@ -1020,11 +1063,42 @@ export default function Index() {
           {/* Name + rating + league */}
           <div className="border p-5 flex flex-col gap-2" style={{ borderColor: profLeague.color + "40", backgroundColor: "rgba(255,255,255,0.02)" }}>
             <div className="flex items-center justify-between">
-              <span className="font-oswald text-2xl font-bold text-white">{player?.nickname ?? "—"}</span>
-              <div className="flex items-center gap-2">
-                <span className="text-xl">{profLeague.icon}</span>
-                <span className="font-oswald text-base font-bold uppercase" style={{ color: profLeague.color }}>{profLeague.name}</span>
-              </div>
+              {nickEditing ? (
+                <div className="flex flex-col gap-2 flex-1 mr-2">
+                  <input
+                    autoFocus
+                    value={nickValue}
+                    onChange={e => setNickValue(e.target.value)}
+                    maxLength={20}
+                    className="w-full h-10 px-3 font-oswald text-xl outline-none"
+                    style={{ backgroundColor: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.2)", color: "#f5f5f5" }}
+                    onKeyDown={e => { if (e.key === "Enter") saveNickname(); if (e.key === "Escape") setNickEditing(false); }}
+                  />
+                  {nickError && <span className="font-rubik text-xs" style={{ color: "#c0392b" }}>{nickError}</span>}
+                  <div className="flex gap-2">
+                    <button onClick={saveNickname} disabled={nickSaving} className="flex-1 h-8 font-oswald text-xs font-bold uppercase tracking-wider" style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}>
+                      {nickSaving ? "…" : "Сохранить"}
+                    </button>
+                    <button onClick={() => { setNickEditing(false); setNickError(""); }} className="h-8 px-3 font-oswald text-xs uppercase" style={{ backgroundColor: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setNickValue(player?.nickname ?? ""); setNickEditing(true); setNickError(""); }}
+                  className="flex items-center gap-2 group"
+                >
+                  <span className="font-oswald text-2xl font-bold text-white">{player?.nickname ?? "—"}</span>
+                  <Icon name="Pencil" size={14} style={{ color: "rgba(255,255,255,0.2)" }} />
+                </button>
+              )}
+              {!nickEditing && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{profLeague.icon}</span>
+                  <span className="font-oswald text-base font-bold uppercase" style={{ color: profLeague.color }}>{profLeague.name}</span>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <span className="font-oswald text-4xl font-bold" style={{ color: "#c0392b" }}>{rating}</span>
@@ -1508,6 +1582,39 @@ export default function Index() {
                 style={{ backgroundColor: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)", border: "1px solid rgba(255,255,255,0.1)" }}
               >
                 Нет
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Мягкий промпт: задай ник */}
+      {savePrompt && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center pb-8 px-6" style={{ backgroundColor: "rgba(0,0,0,0.7)" }}>
+          <div className="w-full max-w-sm border p-6 flex flex-col gap-5 animate-result-in" style={{ backgroundColor: "#161616", borderColor: "rgba(243,156,18,0.4)" }}>
+            <div className="flex flex-col gap-1.5">
+              <span className="font-oswald text-xl font-bold uppercase text-white">Дай себе имя</span>
+              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.45)" }}>
+                Ты набрал прогресс. Задай ник, чтобы тебя знали в лидерборде.
+              </span>
+            </div>
+            <input
+              autoFocus
+              value={nickValue}
+              onChange={e => setNickValue(e.target.value)}
+              maxLength={20}
+              placeholder={player?.nickname ?? "Твой ник"}
+              className="w-full h-12 px-4 font-oswald text-xl text-center tracking-wide outline-none"
+              style={{ backgroundColor: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", color: "#f5f5f5" }}
+              onKeyDown={e => { if (e.key === "Enter") saveNickname(); }}
+            />
+            {nickError && <span className="font-rubik text-xs text-center" style={{ color: "#c0392b" }}>{nickError}</span>}
+            <div className="flex gap-2">
+              <button onClick={saveNickname} disabled={nickSaving} className="flex-1 h-12 font-oswald text-base font-bold tracking-[0.15em] uppercase transition-all active:scale-95" style={{ backgroundColor: "#f39c12", color: "#0f0f0f" }}>
+                {nickSaving ? "…" : "Сохранить"}
+              </button>
+              <button onClick={() => setSavePrompt(false)} className="h-12 px-4 font-oswald text-sm uppercase" style={{ backgroundColor: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.3)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                Позже
               </button>
             </div>
           </div>

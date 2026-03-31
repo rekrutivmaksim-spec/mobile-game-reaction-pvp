@@ -311,4 +311,26 @@ def handler(event: dict, context) -> dict:
             "league": league,
         })
 
+    # ── POST /rename ──
+    if method == "POST" and (action == "rename" or "/rename" in path):
+        if not player_id:
+            return resp(400, {"error": "player_id required"})
+        nickname = (body.get("nickname") or "").strip()
+        if not nickname or len(nickname) < 2 or len(nickname) > 20:
+            return resp(400, {"error": "Ник: от 2 до 20 символов"})
+
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            f"UPDATE {SCHEMA}.players SET nickname=%s WHERE id=%s RETURNING *",
+            (nickname, player_id)
+        )
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+        if not row:
+            return resp(404, {"error": "player not found"})
+        return resp(200, {"player": dict(row)})
+
     return resp(404, {"error": "not found"})
