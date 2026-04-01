@@ -106,6 +106,15 @@ function getSignalDelay(): number {
 const NICKNAMES = ["Зверь", "Железный", "Молния", "Призрак", "Ракета", "Тень", "Коршун", "Тигр", "Волк", "Дракон"];
 function randomNick() { return NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)] + Math.floor(Math.random() * 99); }
 
+// ─────────────── ANALYTICS ───────────────
+function trackEvent(goal: string, params?: Record<string, string | number | boolean>) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ym = (window as any).ym;
+    if (ym) ym(101026698, "reachGoal", goal, params);
+  } catch { /* noop */ }
+}
+
 // ─────────────── MAIN COMPONENT ───────────────
 export default function Index() {
   const [screen, setScreen] = useState<Screen>("home");
@@ -164,6 +173,17 @@ export default function Index() {
   const [shopToast, setShopToast] = useState("");
   const [contextOffer, setContextOffer] = useState<{ itemId: string; message: string } | null>(null);
 
+  // Onboarding (первый запуск)
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardStep, setOnboardStep] = useState(0);
+
+  // Streak milestone celebration
+  const [streakMilestone, setStreakMilestone] = useState<number | null>(null);
+
+  // Challenge claim animation
+  const [claimingChallengeId, setClaimingChallengeId] = useState<number | null>(null);
+  const [claimedIds, setClaimedIds] = useState<Set<number>>(new Set());
+
   const greenTimeRef = useRef<number>(0);
   const gameActiveRef = useRef(false);
   const tensionTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -194,6 +214,11 @@ export default function Index() {
           }
         })
         .catch(() => {});
+      // Подгрузить задания для бейджа
+      fetch(`${CHALL_API}/?action=get&player_id=${stored}`)
+        .then(r => r.json())
+        .then(d => { if (d.challenges) setChallenges(d.challenges); })
+        .catch(() => {});
     } else {
       const nick = randomNick();
       fetch(`${API}/?action=init-player`, {
@@ -207,6 +232,8 @@ export default function Index() {
             localStorage.setItem("ne_slomaisa_player_id", d.player.id);
             setPlayerId(d.player.id);
             setPlayer(d.player);
+            setShowOnboarding(true);
+            setOnboardStep(0);
           }
         })
         .catch(() => {});
@@ -356,12 +383,17 @@ export default function Index() {
 
     saveResult(type, playerMs > 0 && playerMs < 5000 ? playerMs : null, newPlayer!);
     reportChallenge(type);
+    trackEvent("match_result", { result: type, streak: newStreak, rating: newRatingVal, ...(nearMiss ? { near_miss: nearMiss } : {}) });
 
-    // Контекстный оффер
+    // Контекстный оффер — усиленный
     if (type === "false_start") {
-      setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Нажал слишком рано — исправить? 10 монет" }), 400);
+      setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Палец дёрнулся раньше. Вернуть попытку?" }), 400);
+    } else if (!isWin && streakLost && streakLost >= 3) {
+      setTimeout(() => setContextOffer({ itemId: "retry_1", message: `Серия ${streakLost} сгорела. Одна попытка — и она вернётся` }), 400);
     } else if (!isWin && nearMiss === "close") {
-      setTimeout(() => setContextOffer({ itemId: "retry_1", message: `Проиграл на ${Math.abs(playerMs - opponentMs)}мс — вторая попытка?` }), 400);
+      setTimeout(() => setContextOffer({ itemId: "retry_1", message: `${Math.abs(playerMs - opponentMs)}мс — ты был быстрее. Переиграть?` }), 400);
+    } else if (!isWin && nearMiss === "edge") {
+      setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Ты почти вытянул. Ещё одна попытка?" }), 400);
     }
 
     const delay = nearMiss ? 500 : 350;
@@ -369,6 +401,7 @@ export default function Index() {
       setScreenFlash("none");
       setScreen("result");
       if (didLeagueUp) {
+        trackEvent("league_up", { league: newLeague.id, rating: newRatingVal });
         setTimeout(() => {
           setLeagueUpName(newLeague.name);
           setLeagueUpColor(newLeague.color);
@@ -388,11 +421,20 @@ export default function Index() {
         const isGenerated = /^(Зверь|Железный|Молния|Призрак|Ракета|Тень|Коршун|Тигр|Волк|Дракон)\d+$/.test(nick);
         if (isGenerated) setTimeout(() => setSavePrompt(true), 800);
       }
+      // Streak milestones — 3, 5, 10, 15, 20
+      if ([3, 5, 10, 15, 20].includes(newStreak)) {
+        setTimeout(() => {
+          setStreakMilestone(newStreak);
+          if (navigator.vibrate) navigator.vibrate([50, 30, 100]);
+          setTimeout(() => setStreakMilestone(null), 3500);
+        }, 500);
+      }
     }, delay);
   }, [clearAllTimers, saveResult, reportChallenge]);
 
   // ── START MATCH ──
   const startMatch = useCallback(() => {
+    trackEvent("match_start");
     setScreen("searching");
     setResult(null);
 
@@ -529,6 +571,7 @@ export default function Index() {
       .then(r => r.json())
       .then(d => {
         if (d.room) {
+          trackEvent("duel_create");
           setDuelRoom(d.room);
           setScreen("duel-lobby");
           // Поллинг — ждём гостя
@@ -616,6 +659,7 @@ export default function Index() {
       .then(d => {
         if (d.error) { setShopToast(d.error); setTimeout(() => setShopToast(""), 2500); return; }
         if (d.ok) {
+          trackEvent("shop_buy", { item_id: itemId });
           setShopToast("Куплено!");
           setTimeout(() => setShopToast(""), 2000);
           setContextOffer(null);
@@ -736,10 +780,12 @@ export default function Index() {
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Серия</span>
-            {streak > 0 ? (
+            {streak >= 5 ? (
+              <span className={`font-oswald text-2xl font-bold animate-streak-fire`} style={{ color: "#ff6b35" }}>🔥 {streak}</span>
+            ) : streak > 0 ? (
               <span className="font-oswald text-2xl font-bold" style={{ color: "#f39c12" }}>🔥 {streak}</span>
             ) : (
-              <span className="font-rubik text-[10px] text-center leading-tight" style={{ color: "rgba(255,255,255,0.2)", maxWidth: "60px" }}>первая победа</span>
+              <span className="font-rubik text-[10px] text-center leading-tight" style={{ color: "rgba(255,255,255,0.2)", maxWidth: "60px" }}>начни серию</span>
             )}
           </div>
           <div className="flex flex-col items-end gap-0.5">
@@ -767,7 +813,7 @@ export default function Index() {
               className="font-oswald text-base uppercase tracking-wider text-center"
               style={{ color: "rgba(255,255,255,0.55)", animation: "pulse 3s ease-in-out infinite" }}
             >
-              90% игроков ломаются
+              {streak >= 5 ? `${streak} побед подряд. Не сломайся` : "90% игроков ломаются"}
             </span>
             {/* Персональный триггер — приоритет: %, иначе лига, иначе приветствие */}
             {profileData ? (
@@ -785,13 +831,31 @@ export default function Index() {
             )}
           </div>
 
+          {/* Серия под угрозой / мотиватор */}
+          {streak >= 5 && (
+            <div className="w-full max-w-xs border px-4 py-2.5 flex items-center gap-2.5 animate-streak-danger" style={{ borderColor: "rgba(243,156,18,0.4)", backgroundColor: "rgba(243,156,18,0.05)" }}>
+              <span className="text-base">⚠️</span>
+              <span className="font-rubik text-xs" style={{ color: "#f39c12" }}>
+                Серия {streak} на кону. Одна ошибка — и всё сгорит
+              </span>
+            </div>
+          )}
+          {streak >= 3 && streak < 5 && (
+            <div className="w-full max-w-xs border px-4 py-2.5 flex items-center gap-2.5" style={{ borderColor: "rgba(243,156,18,0.25)", backgroundColor: "rgba(243,156,18,0.03)" }}>
+              <span className="text-base">🔥</span>
+              <span className="font-rubik text-xs" style={{ color: "rgba(243,156,18,0.7)" }}>
+                Серия {streak} — ещё {5 - streak} до x2 наград
+              </span>
+            </div>
+          )}
+
           {/* Кнопка + давление */}
           <div className="flex flex-col items-center gap-2 w-full max-w-xs">
             <span
               className="font-rubik text-[11px] uppercase tracking-widest"
               style={{ color: "rgba(255,255,255,0.2)", animation: "pulse 2.5s ease-in-out infinite" }}
             >
-              ошибка = поражение
+              {streak >= 3 ? "рискнёшь продолжить?" : "ошибка = поражение"}
             </span>
             <button
               onClick={startMatch}
@@ -816,12 +880,18 @@ export default function Index() {
             { icon: "ShoppingBag", label: "Магазин", action: () => { setScreen("shop"); loadShop(); } },
             { icon: "CalendarCheck", label: "Задания", action: () => { setScreen("challenges"); loadChallenges(); } },
             { icon: "User", label: "Профиль", action: () => { setScreen("profile"); loadProfile(); } },
-          ].map(({ icon, label, action }) => (
-            <button key={label} onClick={action} className="flex flex-col items-center gap-1.5 transition-opacity active:opacity-60" style={{ opacity: 0.35 }}>
-              <Icon name={icon} size={18} style={{ color: "#f5f5f5" }} />
-              <span className="font-rubik text-[9px] text-white uppercase tracking-wider">{label}</span>
-            </button>
-          ))}
+          ].map(({ icon, label, action }, idx) => {
+            const hasBadge = idx === 3 && challenges.some(c => c.completed && !claimedIds.has(c.id));
+            return (
+              <button key={label} onClick={action} className="relative flex flex-col items-center gap-1.5 transition-opacity active:opacity-60" style={{ opacity: 0.35 }}>
+                <Icon name={icon} size={18} style={{ color: "#f5f5f5" }} />
+                <span className="font-rubik text-[9px] text-white uppercase tracking-wider">{label}</span>
+                {hasBadge && (
+                  <div className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full" style={{ backgroundColor: "#f39c12", boxShadow: "0 0 6px rgba(243,156,18,0.6)" }} />
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
     );
@@ -838,12 +908,19 @@ export default function Index() {
           <Icon name="Crosshair" size={30} style={{ color: "#c0392b" }} />
         </div>
         <div className="flex flex-col items-center gap-3">
-          <span className="font-oswald text-xl tracking-[0.25em] uppercase" style={{ color: "rgba(255,255,255,0.6)" }}>Ищем соперника</span>
+          <span className="font-oswald text-xl tracking-[0.25em] uppercase" style={{ color: "rgba(255,255,255,0.6)" }}>
+            {streak >= 3 ? "Ищем достойного" : "Ищем соперника"}
+          </span>
           <div className="flex gap-1.5">
             {[0, 1, 2].map(i => (
               <div key={i} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "#c0392b", animation: `pulse 1.2s ease-in-out ${i * 0.25}s infinite` }} />
             ))}
           </div>
+          {streak >= 5 && (
+            <span className="font-rubik text-xs mt-3" style={{ color: "rgba(243,156,18,0.5)" }}>
+              🔥 Серия {streak} на кону
+            </span>
+          )}
         </div>
       </div>
     );
@@ -901,12 +978,12 @@ export default function Index() {
       : result.nearMiss === "edge"
       ? "Почти… разница минимальная"
       : null;
-    const titleText = isFalseStart ? "ТЫ СЛОМАЛСЯ"
-      : result.nearMiss === "close" ? (isWin ? "НА ГРАНИ!" : "НА ГРАНИ…")
-      : isWin ? "ТЫ ВЫДЕРЖАЛ" : "ОН ВЫДЕРЖАЛ";
-    const subtitleText = isFalseStart ? "нажал слишком рано — фальстарт"
-      : isWin ? `ты быстрее на ${Math.round(result.opponentTime - result.playerTime)}мс`
-      : "соперник оказался быстрее";
+    const titleText = isFalseStart ? "СЛОМАЛСЯ"
+      : result.nearMiss === "close" ? (isWin ? "НА ВОЛОСКЕ!" : "ПОЧТИ…")
+      : isWin ? "ВЫДЕРЖАЛ" : "НЕ ВЫДЕРЖАЛ";
+    const subtitleText = isFalseStart ? "палец дёрнулся раньше сигнала"
+      : isWin ? `быстрее соперника на ${Math.round(result.opponentTime - result.playerTime)}мс`
+      : result.nearMiss ? `всего ${Math.abs(Math.round(result.playerTime - result.opponentTime))}мс не хватило` : "соперник оказался быстре��";
 
     return (
       <div className="relative flex flex-col items-center justify-between h-dvh w-full px-6 py-12 overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
@@ -988,16 +1065,29 @@ export default function Index() {
             </div>
           )}
 
-          {/* Боль потери серии */}
-          {result.streakLost && (
-            <div className="w-full border px-4 py-3 flex items-center gap-2.5" style={{ borderColor: "rgba(192,57,43,0.4)", backgroundColor: "rgba(192,57,43,0.06)" }}>
+          {/* Боль потери серии — усиленная */}
+          {result.streakLost && result.streakLost >= 5 && (
+            <div className="w-full border px-4 py-4 flex flex-col gap-2 animate-result-in" style={{ borderColor: "rgba(192,57,43,0.6)", backgroundColor: "rgba(192,57,43,0.1)" }}>
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">💀</span>
+                <span className="font-oswald text-lg font-bold uppercase" style={{ color: "#c0392b" }}>
+                  Серия {result.streakLost} уничтожена
+                </span>
+              </div>
+              <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
+                x2 награды сгорели. Ты был в шаге от серии {result.streakLost + 1}
+              </span>
+            </div>
+          )}
+          {result.streakLost && result.streakLost >= 2 && result.streakLost < 5 && (
+            <div className="w-full border px-4 py-3 flex items-center gap-2.5 animate-result-in" style={{ borderColor: "rgba(192,57,43,0.4)", backgroundColor: "rgba(192,57,43,0.06)" }}>
               <span className="text-base">💔</span>
               <div className="flex flex-col gap-0.5">
                 <span className="font-oswald text-sm font-bold uppercase" style={{ color: "#c0392b" }}>
                   Серия {result.streakLost} прервана
                 </span>
                 <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
-                  Ты был в шаге от серии {result.streakLost + 1}
+                  До x2 наград оставалось {5 - result.streakLost} {5 - result.streakLost === 1 ? "победа" : "победы"}
                 </span>
               </div>
             </div>
@@ -1022,9 +1112,10 @@ export default function Index() {
             <div className="w-full border px-4 py-2.5 flex items-center gap-2.5" style={{
               borderColor: result.pressureMsg.includes("вылететь") ? "rgba(192,57,43,0.5)" : "rgba(243,156,18,0.5)",
               backgroundColor: result.pressureMsg.includes("вылететь") ? "rgba(192,57,43,0.06)" : "rgba(243,156,18,0.06)",
+              animation: result.pressureMsg.includes("вылететь") ? "streak-danger 1.5s ease-in-out infinite" : "none",
             }}>
-              <span className="text-base">{result.pressureMsg.includes("вылететь") ? "⚠️" : "⚡"}</span>
-              <span className="font-rubik text-sm" style={{ color: result.pressureMsg.includes("вылететь") ? "#c0392b" : "#f39c12" }}>
+              <span className="text-base">{result.pressureMsg.includes("вылететь") ? "⚠️" : "🎯"}</span>
+              <span className="font-rubik text-sm font-medium" style={{ color: result.pressureMsg.includes("вылететь") ? "#c0392b" : "#f39c12" }}>
                 {result.pressureMsg}
               </span>
             </div>
@@ -1033,7 +1124,7 @@ export default function Index() {
 
         <div className="flex flex-col gap-3 w-full">
           <button onClick={startMatch} className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase transition-all active:scale-95" style={{ backgroundColor: accentColor, color: isWin ? "#0f0f0f" : "#f5f5f5" }}>
-            ЕЩЁ РАЗ
+            {isFalseStart ? "РЕВАНШ" : isWin ? "ЕЩЁ РАЗ" : "ОТЫГРАТЬСЯ"}
           </button>
           <button
             onClick={createDuelRoom}
@@ -1256,7 +1347,7 @@ export default function Index() {
             <div className="flex flex-col gap-0.5">
               <span className="font-rubik text-[10px] uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.25)" }}>Форма</span>
               <span className="font-oswald text-base font-bold" style={{ color: winrate >= 50 ? "#00e676" : winrate >= 30 ? "#f39c12" : "rgba(255,255,255,0.4)" }}>
-                {winrate >= 60 ? "🔥 В огне" : winrate >= 50 ? "✊ В силе" : winrate >= 30 ? "📈 Растёт" : "💪 Ещё есть куда расти"}
+                {winrate >= 60 ? "🔥 Машина" : winrate >= 50 ? "✊ В ударе" : winrate >= 30 ? "📈 Набирает обороты" : "💪 Разогревается"}
               </span>
             </div>
             <div className="flex flex-col items-end gap-0.5">
@@ -1306,13 +1397,16 @@ export default function Index() {
           <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white">Дуэль</h2>
         </div>
 
-        {/* Главный слоган */}
-        <div className="flex flex-col items-center gap-1 pb-6">
+        {/* Главный слоган — провокация */}
+        <div className="flex flex-col items-center gap-2 pb-6">
           <span className="font-oswald text-base uppercase tracking-wider text-center" style={{ color: "rgba(255,255,255,0.5)" }}>
             Проверь кто из вас
           </span>
           <span className="font-oswald text-2xl font-bold uppercase text-center" style={{ color: "#c0392b" }}>
             сломается первым
+          </span>
+          <span className="font-rubik text-xs text-center" style={{ color: "rgba(255,255,255,0.25)" }}>
+            Отговорки не принимаются — только реакция
           </span>
         </div>
 
@@ -1321,7 +1415,7 @@ export default function Index() {
           <div className="border p-5 flex flex-col gap-4" style={{ borderColor: "rgba(192,57,43,0.35)", backgroundColor: "rgba(192,57,43,0.05)" }}>
             <div className="flex flex-col gap-1">
               <span className="font-oswald text-lg font-bold uppercase text-white">Бросить вызов</span>
-              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Отправь другу ссылку — и узнайте кто быстрее</span>
+              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Скинь другу ссылку. Пусть докажет, что он не медленный</span>
             </div>
             <button
               onClick={createDuelRoom}
@@ -1392,13 +1486,21 @@ export default function Index() {
                 ))}
               </div>
               <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.35)" }}>Ждём соперника…</span>
+              <span className="font-rubik text-xs text-center" style={{ color: "rgba(255,255,255,0.15)" }}>
+                Может он уже боится?
+              </span>
             </div>
           )}
 
           {isReady && (
-            <div className="border px-6 py-3 flex items-center gap-2" style={{ borderColor: "#00e676", backgroundColor: "rgba(0,230,118,0.06)" }}>
-              <span className="text-base">✅</span>
-              <span className="font-oswald text-base font-bold uppercase" style={{ color: "#00e676" }}>Соперник подключился!</span>
+            <div className="flex flex-col items-center gap-3">
+              <div className="border px-6 py-3 flex items-center gap-2" style={{ borderColor: "#00e676", backgroundColor: "rgba(0,230,118,0.06)" }}>
+                <span className="text-base">✅</span>
+                <span className="font-oswald text-base font-bold uppercase" style={{ color: "#00e676" }}>Соперник на месте</span>
+              </div>
+              <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>
+                Сейчас узнаем кто из вас быстрее на самом деле
+              </span>
             </div>
           )}
 
@@ -1480,10 +1582,31 @@ export default function Index() {
                       <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>{c.description}</span>
                     </div>
                     {/* Кнопка ЗАБРАТЬ или сумма */}
-                    {c.completed ? (
-                      <div className="shrink-0 flex items-center gap-1.5 px-3 h-8 border animate-result-in" style={{ borderColor: "rgba(0,230,118,0.4)", backgroundColor: "rgba(0,230,118,0.08)" }}>
-                        <span className="font-oswald text-xs font-bold uppercase" style={{ color: "#00e676" }}>✓ {c.reward_coins}⚡</span>
+                    {c.completed && claimedIds.has(c.id) ? (
+                      <div className="shrink-0 flex items-center gap-1.5 px-3 h-8 border" style={{ borderColor: "rgba(0,230,118,0.4)", backgroundColor: "rgba(0,230,118,0.08)" }}>
+                        <span className="font-oswald text-xs font-bold uppercase" style={{ color: "#00e676" }}>✓ забрано</span>
                       </div>
+                    ) : c.completed ? (
+                      <button
+                        onClick={() => {
+                          setClaimingChallengeId(c.id);
+                          if (navigator.vibrate) navigator.vibrate([30, 20, 50]);
+                          setTimeout(() => {
+                            setClaimedIds(prev => new Set([...prev, c.id]));
+                            setClaimingChallengeId(null);
+                            setChallengeCoins(c.reward_coins);
+                            setTimeout(() => setChallengeCoins(0), 3000);
+                          }, 600);
+                        }}
+                        className="shrink-0 px-4 h-9 font-oswald text-xs font-bold uppercase tracking-wider transition-all active:scale-95 animate-claim-pulse"
+                        style={{ backgroundColor: "#f39c12", color: "#0f0f0f" }}
+                      >
+                        {claimingChallengeId === c.id ? (
+                          <span className="animate-coin-collect inline-block">+{c.reward_coins}⚡</span>
+                        ) : (
+                          <>ЗАБРАТЬ +{c.reward_coins}⚡</>
+                        )}
+                      </button>
                     ) : (
                       <span className="font-oswald text-sm font-bold shrink-0" style={{ color: "rgba(255,255,255,0.25)" }}>+{c.reward_coins}⚡</span>
                     )}
@@ -1768,6 +1891,86 @@ export default function Index() {
       {shopToast && screen !== "shop" && (
         <div className="fixed top-8 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 animate-result-in" style={{ backgroundColor: "rgba(0,230,118,0.15)", border: "1px solid rgba(0,230,118,0.35)", backdropFilter: "blur(8px)" }}>
           <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#00e676" }}>{shopToast}</span>
+        </div>
+      )}
+
+      {/* Streak Milestone Celebration */}
+      {streakMilestone && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none" style={{ backgroundColor: "rgba(0,0,0,0.7)" }}>
+          <div className="flex flex-col items-center gap-4 animate-streak-milestone">
+            <span className="text-6xl">{streakMilestone >= 10 ? "🔥" : streakMilestone >= 5 ? "⚡" : "🎯"}</span>
+            <div className="flex flex-col items-center gap-2">
+              <span className="font-oswald text-5xl font-bold" style={{ color: "#f39c12", textShadow: "0 0 40px rgba(243,156,18,0.6)" }}>
+                {streakMilestone}
+              </span>
+              <span className="font-oswald text-xl font-bold uppercase tracking-wider" style={{ color: "#f5f5f5" }}>
+                {streakMilestone >= 10 ? "НЕПОБЕДИМ!" : streakMilestone >= 5 ? "X2 НАГРАДЫ!" : "СЕРИЯ!"}
+              </span>
+              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>
+                {streakMilestone >= 10 ? "Тебя не остановить" : streakMilestone >= 5 ? "Все монеты удваиваются" : "Продолжай давить"}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Onboarding — первый запуск */}
+      {showOnboarding && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-between px-6 py-12" style={{ backgroundColor: "#0f0f0f" }}>
+          {onboardStep === 0 && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-8 animate-result-in">
+              <div className="flex flex-col items-center gap-4">
+                <div className="relative">
+                  <div className="absolute inset-0 rounded-full blur-3xl" style={{ backgroundColor: "#c0392b", opacity: 0.15 }} />
+                  <span className="relative text-7xl block">⚡</span>
+                </div>
+                <h1 className="font-oswald font-bold uppercase text-center leading-tight" style={{ fontSize: "clamp(2.5rem, 12vw, 4rem)", color: "#f5f5f5" }}>
+                  НЕ СЛОМАЙСЯ
+                </h1>
+                <p className="font-rubik text-base text-center" style={{ color: "rgba(255,255,255,0.5)", maxWidth: "280px" }}>
+                  PvP-дуэль на реакцию. Один сигнал. Кто быстрее нажал — тот победил.
+                </p>
+              </div>
+              <button
+                onClick={() => setOnboardStep(1)}
+                className="w-full max-w-xs h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase transition-all active:scale-95 animate-onboard-glow"
+                style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}
+              >
+                ПОНЯЛ
+              </button>
+            </div>
+          )}
+          {onboardStep === 1 && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-8 animate-result-in">
+              <div className="flex flex-col items-center gap-6">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(192,57,43,0.15)", border: "2px solid rgba(192,57,43,0.4)" }}>
+                    <span className="font-oswald text-3xl font-bold" style={{ color: "#c0392b" }}>ЖДИ</span>
+                  </div>
+                  <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Экран красный — не трогай</span>
+                </div>
+                <div className="text-3xl">↓</div>
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(0,230,118,0.15)", border: "2px solid rgba(0,230,118,0.4)" }}>
+                    <span className="font-oswald text-3xl font-bold" style={{ color: "#00e676" }}>ЖМИ</span>
+                  </div>
+                  <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Экран зелёный — жми мгновенно</span>
+                </div>
+              </div>
+              <div className="flex flex-col items-center gap-3 w-full max-w-xs">
+                <div className="border px-4 py-2 w-full text-center" style={{ borderColor: "rgba(192,57,43,0.3)", backgroundColor: "rgba(192,57,43,0.05)" }}>
+                  <span className="font-rubik text-xs" style={{ color: "#c0392b" }}>⚠️ Нажмёшь раньше = фальстарт = проигрыш</span>
+                </div>
+                <button
+                  onClick={() => { trackEvent("onboarding_complete"); setShowOnboarding(false); startMatch(); }}
+                  className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase transition-all active:scale-95 animate-onboard-glow"
+                  style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}
+                >
+                  П��ЕХАЛИ
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </>
