@@ -335,7 +335,7 @@ export default function Index() {
     const streakLost = !isWin && currentStreak >= 2 ? currentStreak : undefined;
     const newStreak = isWin ? currentStreak + 1 : 0;
     const streakBonus = newStreak >= 5 ? 2 : 1;
-    const coins_earned = (isWin ? 15 : -3) * streakBonus;
+    const coins_earned = (isWin ? 20 : -10) * streakBonus;
 
     const prevRating = curPlayer?.rating ?? 1000;
     const newRatingVal = Math.max(0, prevRating + ratingDelta);
@@ -790,7 +790,7 @@ export default function Index() {
           </div>
           <div className="flex flex-col items-end gap-0.5">
             <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Монеты</span>
-            <span className="font-oswald text-2xl font-bold" style={{ color: "#f39c12" }}>⚡{coins}</span>
+            <span className="font-oswald text-2xl font-bold" style={{ color: "#f39c12" }}>🪙{coins}</span>
           </div>
         </div>
 
@@ -1001,7 +1001,7 @@ export default function Index() {
           {/* Near Miss */}
           {nearMissText && (
             <div className="w-full border px-4 py-2.5 flex items-center gap-2.5 animate-result-in" style={{ borderColor: "rgba(255,255,255,0.2)", backgroundColor: "rgba(255,255,255,0.04)" }}>
-              <span className="text-base">⚡</span>
+              <span className="text-base">🪙</span>
               <span className="font-oswald text-sm tracking-wider uppercase" style={{ color: "#f5f5f5" }}>{nearMissText}</span>
             </div>
           )}
@@ -1046,7 +1046,7 @@ export default function Index() {
             </div>
             <div className="w-px h-8" style={{ backgroundColor: "rgba(255,255,255,0.07)" }} />
             <div className="flex flex-col items-center gap-1">
-              <span className="font-oswald text-xl font-bold" style={{ color: result.coinsEarned >= 0 ? "#f39c12" : "#e74c3c" }}>{result.coinsEarned > 0 ? "+" : ""}{result.coinsEarned}⚡</span>
+              <span className="font-oswald text-xl font-bold" style={{ color: result.coinsEarned >= 0 ? "#f39c12" : "#e74c3c" }}>{result.coinsEarned > 0 ? "+" : ""}{result.coinsEarned}🪙</span>
               <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.2)" }}>монет</span>
             </div>
             {result.newStreak > 0 && (
@@ -1598,7 +1598,7 @@ export default function Index() {
         {challengeCoins > 0 && (
           <div className="mx-6 mb-3 border px-4 py-2.5 flex items-center gap-2 animate-result-in" style={{ borderColor: "#f39c12", backgroundColor: "rgba(243,156,18,0.07)" }}>
             <span className="text-lg">🎁</span>
-            <span className="font-oswald text-base font-bold uppercase" style={{ color: "#f39c12" }}>+{challengeCoins}⚡ получено!</span>
+            <span className="font-oswald text-base font-bold uppercase" style={{ color: "#f39c12" }}>+{challengeCoins}🪙 получено!</span>
           </div>
         )}
 
@@ -1643,13 +1643,13 @@ export default function Index() {
                         style={{ backgroundColor: "#f39c12", color: "#0f0f0f" }}
                       >
                         {claimingChallengeId === c.id ? (
-                          <span className="animate-coin-collect inline-block">+{c.reward_coins}⚡</span>
+                          <span className="animate-coin-collect inline-block">+{c.reward_coins}🪙</span>
                         ) : (
-                          <>ЗАБРАТЬ +{c.reward_coins}⚡</>
+                          <>ЗАБРАТЬ +{c.reward_coins}🪙</>
                         )}
                       </button>
                     ) : (
-                      <span className="font-oswald text-sm font-bold shrink-0" style={{ color: "rgba(255,255,255,0.25)" }}>+{c.reward_coins}⚡</span>
+                      <span className="font-oswald text-sm font-bold shrink-0" style={{ color: "rgba(255,255,255,0.25)" }}>+{c.reward_coins}🪙</span>
                     )}
                   </div>
                   {/* Прогресс */}
@@ -1706,7 +1706,7 @@ export default function Index() {
           </button>
           <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white flex-1">Магазин</h2>
           <div className="flex items-center gap-1.5">
-            <span className="font-oswald text-xl font-bold" style={{ color: "#f39c12" }}>⚡{coins}</span>
+            <span className="font-oswald text-xl font-bold" style={{ color: "#f39c12" }}>🪙{coins}</span>
           </div>
         </div>
 
@@ -1771,7 +1771,7 @@ export default function Index() {
               ].map(pack => (
                 <div key={pack.amount} className="border p-4 flex items-center justify-between" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl">⚡</span>
+                    <span className="text-2xl">🪙</span>
                     <span className="font-oswald text-lg font-bold" style={{ color: "#f39c12" }}>{pack.amount} монет</span>
                   </div>
                   <button
@@ -1829,7 +1829,7 @@ export default function Index() {
                         {/* Цена */}
                         {item.price_coins && (
                           <span className="font-oswald text-sm font-bold" style={{ color: canAfford ? "#f39c12" : "rgba(255,255,255,0.25)" }}>
-                            ⚡{item.price_coins}
+                            🪙{item.price_coins}
                           </span>
                         )}
                         <div className="flex-1" />
@@ -1924,7 +1924,7 @@ export default function Index() {
                   className="flex-1 h-11 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95"
                   style={{ backgroundColor: (!hasInInventory && !canAffordOffer) ? "rgba(255,255,255,0.05)" : "#c0392b", color: "#f5f5f5" }}
                 >
-                  {hasInInventory ? "Использовать" : canAffordOffer ? `Купить · ${price}⚡` : "Мало монет"}
+                  {hasInInventory ? "Использовать" : canAffordOffer ? `Купить · ${price}🪙` : "Мало монет"}
                 </button>
                 <button
                   onClick={() => setContextOffer(null)}
@@ -1983,7 +1983,7 @@ export default function Index() {
       {streakMilestone && (
         <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none" style={{ backgroundColor: "rgba(0,0,0,0.7)" }}>
           <div className="flex flex-col items-center gap-4 animate-streak-milestone">
-            <span className="text-6xl">{streakMilestone >= 10 ? "🔥" : streakMilestone >= 5 ? "⚡" : "🎯"}</span>
+            <span className="text-6xl">{streakMilestone >= 10 ? "🔥" : streakMilestone >= 5 ? "🪙" : "🎯"}</span>
             <div className="flex flex-col items-center gap-2">
               <span className="font-oswald text-5xl font-bold" style={{ color: "#f39c12", textShadow: "0 0 40px rgba(243,156,18,0.6)" }}>
                 {streakMilestone}
@@ -2007,7 +2007,7 @@ export default function Index() {
               <div className="flex flex-col items-center gap-4">
                 <div className="relative">
                   <div className="absolute inset-0 rounded-full blur-3xl" style={{ backgroundColor: "#c0392b", opacity: 0.15 }} />
-                  <span className="relative text-7xl block">⚡</span>
+                  <span className="relative text-7xl block">🪙</span>
                 </div>
                 <h1 className="font-oswald font-bold uppercase text-center leading-tight" style={{ fontSize: "clamp(2.5rem, 12vw, 4rem)", color: "#f5f5f5" }}>
                   НЕ СЛОМАЙСЯ

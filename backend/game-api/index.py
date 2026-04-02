@@ -161,7 +161,7 @@ def handler(event: dict, context) -> dict:
 
         # x2 буст
         x2_active = boosts.get("x2_reward", 0) > 0
-        base_coins = (15 if is_win else -3) * streak_bonus
+        base_coins = (20 if is_win else -10) * streak_bonus
         coins_earned = base_coins * (2 if x2_active and is_win else 1)
         if x2_active and is_win:
             cur.execute(
