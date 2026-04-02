@@ -432,11 +432,27 @@ export default function Index() {
     }, delay);
   }, [clearAllTimers, saveResult, reportChallenge]);
 
+  // ── OPPONENT NAME (генерация для экрана поиска) ──
+  const [opponentName, setOpponentName] = useState("");
+  const [searchPhase, setSearchPhase] = useState<"searching" | "found" | "ready">("searching");
+
   // ── START MATCH ──
   const startMatch = useCallback(() => {
     trackEvent("match_start");
     setScreen("searching");
     setResult(null);
+    setSearchPhase("searching");
+    const fakeOpponent = NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)] + Math.floor(Math.random() * 99);
+    setOpponentName(fakeOpponent);
+
+    setTimeout(() => {
+      setSearchPhase("found");
+      if (navigator.vibrate) navigator.vibrate([30]);
+    }, 800 + Math.random() * 400);
+
+    setTimeout(() => {
+      setSearchPhase("ready");
+    }, 1600 + Math.random() * 300);
 
     setTimeout(() => {
       setScreen("game");
@@ -460,6 +476,9 @@ export default function Index() {
         setPhase("action");
         phaseRef.current = "action";
         setScreenFlash("green");
+        setShaking(true);
+        if (navigator.vibrate) navigator.vibrate([15, 10, 25]);
+        setTimeout(() => setShaking(false), 200);
 
         const botTime = getBotReactionTime(isNewbie);
         if (botTime === -1) {
@@ -475,7 +494,7 @@ export default function Index() {
           if (gameActiveRef.current) finishMatch("lose", 5000, getBotReactionTime(isNewbie), playerRef.current);
         }, 3000);
       }, delay);
-    }, 1200 + Math.random() * 800);
+    }, 2200 + Math.random() * 300);
   }, [runTensionEffects, finishMatch]);
 
   // ── PLAYER TAP ──
@@ -900,28 +919,50 @@ export default function Index() {
   // ── SEARCHING ──
   if (screen === "searching") {
     return (
-      <div className="flex flex-col items-center justify-center h-dvh w-full gap-10" style={{ backgroundColor: "#0f0f0f" }}>
-        <div className="relative flex items-center justify-center w-24 h-24">
-          {[1, 0.65, 0.4].map((scale, i) => (
-            <div key={i} className="absolute rounded-full border" style={{ width: `${96 * scale}px`, height: `${96 * scale}px`, borderColor: "rgba(192,57,43,0.4)", animation: `pulse ${1.2 + i * 0.3}s ease-in-out ${i * 0.15}s infinite` }} />
-          ))}
-          <Icon name="Crosshair" size={30} style={{ color: "#c0392b" }} />
-        </div>
-        <div className="flex flex-col items-center gap-3">
-          <span className="font-oswald text-xl tracking-[0.25em] uppercase" style={{ color: "rgba(255,255,255,0.6)" }}>
-            {streak >= 3 ? "Ищем достойного" : "Ищем соперника"}
-          </span>
-          <div className="flex gap-1.5">
-            {[0, 1, 2].map(i => (
-              <div key={i} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "#c0392b", animation: `pulse 1.2s ease-in-out ${i * 0.25}s infinite` }} />
-            ))}
+      <div className="flex flex-col items-center justify-center h-dvh w-full gap-8" style={{ backgroundColor: "#0f0f0f" }}>
+        {searchPhase === "searching" && (
+          <>
+            <div className="relative flex items-center justify-center w-24 h-24">
+              {[1, 0.65, 0.4].map((scale, i) => (
+                <div key={i} className="absolute rounded-full border" style={{ width: `${96 * scale}px`, height: `${96 * scale}px`, borderColor: "rgba(192,57,43,0.4)", animation: `pulse ${1.2 + i * 0.3}s ease-in-out ${i * 0.15}s infinite` }} />
+              ))}
+              <Icon name="Crosshair" size={30} style={{ color: "#c0392b" }} />
+            </div>
+            <div className="flex flex-col items-center gap-3">
+              <span className="font-oswald text-xl tracking-[0.25em] uppercase" style={{ color: "rgba(255,255,255,0.6)" }}>
+                {streak >= 3 ? "Ищем достойного" : "Ищем соперника"}
+              </span>
+              <div className="flex gap-1.5">
+                {[0, 1, 2].map(i => (
+                  <div key={i} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "#c0392b", animation: `pulse 1.2s ease-in-out ${i * 0.25}s infinite` }} />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+        {searchPhase === "found" && (
+          <div className="flex flex-col items-center gap-5 animate-result-in">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(0,230,118,0.12)", border: "2px solid rgba(0,230,118,0.4)" }}>
+              <Icon name="Check" size={28} style={{ color: "#00e676" }} />
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <span className="font-oswald text-lg tracking-[0.2em] uppercase" style={{ color: "#00e676" }}>Найден</span>
+              <span className="font-oswald text-2xl font-bold text-white">{opponentName}</span>
+            </div>
           </div>
-          {streak >= 5 && (
-            <span className="font-rubik text-xs mt-3" style={{ color: "rgba(243,156,18,0.5)" }}>
-              🔥 Серия {streak} на кону
+        )}
+        {searchPhase === "ready" && (
+          <div className="flex flex-col items-center gap-5 animate-result-in">
+            <span className="font-oswald font-bold uppercase tracking-wider" style={{ fontSize: "clamp(1.5rem, 8vw, 2.5rem)", color: "#c0392b", animation: "pulse 1.5s ease-in-out infinite" }}>
+              Не нажми раньше...
             </span>
-          )}
-        </div>
+          </div>
+        )}
+        {streak >= 5 && searchPhase === "searching" && (
+          <span className="font-rubik text-xs" style={{ color: "rgba(243,156,18,0.5)" }}>
+            🔥 Серия {streak} на кону
+          </span>
+        )}
       </div>
     );
   }
@@ -981,9 +1022,11 @@ export default function Index() {
     const titleText = isFalseStart ? "ТЫ СЛОМАЛСЯ"
       : result.nearMiss === "close" ? (isWin ? "НА ВОЛОСКЕ!" : "ПОЧТИ…")
       : isWin ? "ТЫ ВЫДЕРЖАЛ" : "ТЫ СЛОМАЛСЯ";
+    const timeDiff = Math.abs(Math.round(result.opponentTime - result.playerTime));
     const subtitleText = isFalseStart ? "Слишком рано"
-      : isWin ? `быстрее соперника на ${Math.round(result.opponentTime - result.playerTime)}мс`
-      : result.nearMiss ? `${Math.abs(Math.round(result.playerTime - result.opponentTime))} мс... ты был очень близко` : "Он был быстрее��";
+      : (result.opponentTime === -1 && isWin) ? "Он сломался раньше тебя"
+      : isWin ? `быстрее соперника на ${timeDiff} мс`
+      : result.nearMiss ? `${timeDiff} мс... ты был очень близко` : "Он был быстрее��";
 
     return (
       <div className="relative flex flex-col items-center justify-between h-dvh w-full px-6 py-12 overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
@@ -1001,13 +1044,13 @@ export default function Index() {
           {/* Near Miss */}
           {nearMissText && (
             <div className="w-full border px-4 py-2.5 flex items-center gap-2.5 animate-result-in" style={{ borderColor: "rgba(255,255,255,0.2)", backgroundColor: "rgba(255,255,255,0.04)" }}>
-              <span className="text-base">🪙</span>
+              <span className="text-base">⚡</span>
               <span className="font-oswald text-sm tracking-wider uppercase" style={{ color: "#f5f5f5" }}>{nearMissText}</span>
             </div>
           )}
 
-          {/* Percent better */}
-          {result.percentBetter !== undefined && (
+          {/* Percent better — показываем только если >= 30% */}
+          {result.percentBetter !== undefined && result.percentBetter >= 30 && (
             <div className="border px-5 py-2" style={{ borderColor: "rgba(255,255,255,0.1)", backgroundColor: "rgba(255,255,255,0.03)" }}>
               <span className="font-oswald text-lg font-bold" style={{ color: "#f39c12" }}>
                 БЫСТРЕЕ {result.percentBetter}% ИГРОКОВ
@@ -1145,7 +1188,7 @@ export default function Index() {
                 // TODO: реклама → удвоение
               }}
             >
-              УДВОИТЬ НАГРАДУ
+              СМОТРЕТЬ → ПОЛУЧИТЬ +{result.coinsEarned}🪙
             </button>
           )}
           {!isWin && (
@@ -1178,9 +1221,9 @@ export default function Index() {
             <Icon name="Swords" size={14} />
             ВЫЗВАТЬ ДРУГА
           </button>
-          <button onClick={() => setScreen("home")} className="w-full h-10 font-oswald text-xs tracking-[0.15em] uppercase transition-all active:scale-95" style={{ backgroundColor: "transparent", color: "rgba(255,255,255,0.2)", border: "1px solid rgba(255,255,255,0.05)" }}>
-            ГЛАВНЫЙ ЭКРАН
-          </button>
+          <span onClick={() => setScreen("home")} className="font-rubik text-xs text-center pt-1 active:opacity-60" style={{ color: "rgba(255,255,255,0.15)" }}>
+            на главную
+          </span>
         </div>
       </div>
     );
@@ -1331,13 +1374,18 @@ export default function Index() {
               </div>
             </div>
 
-            {/* % игроков */}
-            {pctBetter !== null && (
+            {/* % игроков — только если >= 30% */}
+            {pctBetter !== null && pctBetter >= 30 && (
               <div className="border px-4 py-2.5 flex items-center justify-center" style={{ borderColor: "rgba(243,156,18,0.3)", backgroundColor: "rgba(243,156,18,0.06)" }}>
                 <span className="font-oswald text-lg font-bold uppercase tracking-wider" style={{ color: "#f39c12" }}>
                   🔥 быстрее {pctBetter}% игроков
                 </span>
               </div>
+            )}
+            {pctBetter !== null && pctBetter < 30 && (
+              <span className="font-rubik text-xs text-center" style={{ color: "rgba(255,255,255,0.25)" }}>
+                Ты уже в рейтинге — продолжай играть
+              </span>
             )}
 
             {/* Ник + редактирование */}
