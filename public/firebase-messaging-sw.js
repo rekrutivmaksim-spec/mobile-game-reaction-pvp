@@ -2,7 +2,7 @@ importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
 firebase.initializeApp({
-  apiKey: self.__FCM_API_KEY__ || "",
+  apiKey: "AIzaSyBTNZyE-5AM7tCVN8m1kpq67hozQ2sQbtg",
   projectId: "ne-slomaisa",
   messagingSenderId: "16535890851",
   appId: "1:16535890851:web:placeholder",
