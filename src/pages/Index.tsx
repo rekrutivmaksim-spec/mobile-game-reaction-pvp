@@ -123,6 +123,26 @@ function playHeartbeatOnce(volume = 0.3) {
   } catch { /* audio not available */ }
 }
 
+function playTapClick() {
+  try {
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.03, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 8);
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.3, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+    src.connect(g);
+    g.connect(ctx.destination);
+    src.start(now);
+  } catch { /* audio not available */ }
+}
+
 // ─────────────── BOT LOGIC ───────────────
 // isNewbie: true для первых 3 матчей — бот заметно медленнее, шанс выиграть выше
 function getBotReactionTime(isNewbie = false): number {
@@ -328,21 +348,43 @@ export default function Index() {
   const runTensionEffects = useCallback((totalDelay: number) => {
     const effects: ReturnType<typeof setTimeout>[] = [];
     const focusActive = (shopBoosts["focus"] ?? 0) > 0;
-    if (!focusActive && Math.random() < 0.30) {
-      const t = Math.random() * totalDelay * 0.6 + 300;
-      effects.push(setTimeout(() => { setFakeFlash(true); setTimeout(() => setFakeFlash(false), 60 + Math.random() * 40); }, t));
+    if (totalDelay < 500) { tensionTimersRef.current = effects; return; }
+    // Фейковые зелёные вспышки — 1-2 за матч, 50% шанс каждой
+    if (!focusActive) {
+      const fakeCount = totalDelay > 4000 ? 2 : 1;
+      for (let f = 0; f < fakeCount; f++) {
+        if (Math.random() < 0.50) {
+          const t = (totalDelay * 0.2) + Math.random() * (totalDelay * 0.5) + f * 1500;
+          if (t < totalDelay - 500) {
+            effects.push(setTimeout(() => {
+              setFakeFlash(true);
+              if (navigator.vibrate) navigator.vibrate([10]);
+              setTimeout(() => setFakeFlash(false), 80 + Math.random() * 60);
+            }, t));
+          }
+        }
+      }
     }
-    if (!focusActive && Math.random() < 0.20) {
-      const t = Math.random() * totalDelay * 0.5 + 500;
-      effects.push(setTimeout(() => { setAlmostGreen(true); setTimeout(() => setAlmostGreen(false), 80 + Math.random() * 40); }, t));
+    // "Почти зелёный" — 35% шанс, дольше горит
+    if (!focusActive && Math.random() < 0.35) {
+      const t = totalDelay * 0.4 + Math.random() * totalDelay * 0.3;
+      if (t < totalDelay - 400) {
+        effects.push(setTimeout(() => {
+          setAlmostGreen(true);
+          setTimeout(() => setAlmostGreen(false), 120 + Math.random() * 80);
+        }, t));
+      }
     }
-    if (Math.random() < 0.20) {
+    // Микро-тряска
+    if (Math.random() < 0.30) {
       const t = Math.random() * totalDelay * 0.7 + 400;
-      effects.push(setTimeout(() => {
-        setShaking(true);
-        if (navigator.vibrate) navigator.vibrate([30]);
-        setTimeout(() => setShaking(false), 400);
-      }, t));
+      if (t < totalDelay - 300) {
+        effects.push(setTimeout(() => {
+          setShaking(true);
+          if (navigator.vibrate) navigator.vibrate([25]);
+          setTimeout(() => setShaking(false), 350);
+        }, t));
+      }
     }
     tensionTimersRef.current = effects;
   }, []);
@@ -551,7 +593,7 @@ export default function Index() {
 
   // ── OPPONENT NAME (генерация для экрана поиска) ──
   const [opponentName, setOpponentName] = useState("");
-  const [searchPhase, setSearchPhase] = useState<"searching" | "found" | "ready">("searching");
+  const [searchPhase, setSearchPhase] = useState<"searching" | "connecting" | "found" | "ready">("searching");
 
   // ── START MATCH ──
   const startMatch = useCallback(() => {
@@ -563,13 +605,18 @@ export default function Index() {
     setOpponentName(fakeOpponent);
 
     setTimeout(() => {
+      setSearchPhase("connecting");
+    }, 900 + Math.random() * 400);
+
+    setTimeout(() => {
       setSearchPhase("found");
       if (navigator.vibrate) navigator.vibrate([30]);
-    }, 800 + Math.random() * 400);
+    }, 1800 + Math.random() * 500);
 
     setTimeout(() => {
       setSearchPhase("ready");
-    }, 1600 + Math.random() * 300);
+      if (navigator.vibrate) navigator.vibrate([15, 100, 15]);
+    }, 2800 + Math.random() * 400);
 
     setTimeout(() => {
       setScreen("game");
@@ -658,7 +705,7 @@ export default function Index() {
           if (gameActiveRef.current) finishMatch("lose", 5000, getBotReactionTime(isNewbie), playerRef.current);
         }, 3000);
       }, delay);
-    }, 2200 + Math.random() * 300);
+    }, 3800 + Math.random() * 400);
   }, [runTensionEffects, finishMatch]);
 
   // Регистрируем startMatch в ref для deep link
@@ -675,6 +722,7 @@ export default function Index() {
       waitTextTimers.current.forEach(clearTimeout);
       setScreenFlash("red");
       setTapFlash(true);
+      playTapClick();
       setTimeout(() => setTapFlash(false), 120);
       if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
       setShaking(true);
@@ -688,6 +736,7 @@ export default function Index() {
       gameActiveRef.current = false;
       clearAllTimers();
       setTapFlash(true);
+      playTapClick();
       setTimeout(() => setTapFlash(false), 120);
       if (navigator.vibrate) navigator.vibrate([40]);
       setShaking(true);
@@ -1097,20 +1146,28 @@ export default function Index() {
             >
               {streak >= 5 ? `${streak} побед подряд. Не сломайся` : "90% игроков ошибаются"}
             </span>
-            {/* Персональный триггер — приоритет: %, иначе лига, иначе приветствие */}
+            {/* Цель — лига */}
+            {leagueProgress.next && (
+              <div className="flex items-center gap-2 mt-1 px-3 py-1.5 border" style={{ borderColor: `${leagueProgress.next.color}30`, backgroundColor: `${leagueProgress.next.color}08` }}>
+                <span className="text-sm">{leagueProgress.next.icon}</span>
+                <span className="font-oswald text-xs uppercase tracking-wider" style={{ color: leagueProgress.next.color }}>
+                  {leagueProgress.pointsLeft <= 50
+                    ? `${Math.ceil(leagueProgress.pointsLeft / 25)} ${Math.ceil(leagueProgress.pointsLeft / 25) === 1 ? "победа" : "победы"} до ${leagueProgress.next.name}`
+                    : `до ${leagueProgress.next.name}: ${leagueProgress.pointsLeft}`
+                  }
+                </span>
+              </div>
+            )}
+            {/* Персональный триггер */}
             {profileData ? (
               <span className="font-rubik text-xs text-center" style={{ color: "#f39c12" }}>
                 ты быстрее {profileData.percent_better}% игроков
               </span>
-            ) : leagueProgress.next ? (
-              <span className="font-rubik text-xs text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
-                до {leagueProgress.next.name}: {leagueProgress.pointsLeft} очков
-              </span>
-            ) : (
+            ) : !leagueProgress.next ? (
               <span className="font-rubik text-xs text-center" style={{ color: "rgba(255,255,255,0.2)" }}>
                 {player?.nickname ?? "Игрок"} · готов к бою?
               </span>
-            )}
+            ) : null}
             {/* Титул */}
             {equippedTitle && (
               <span className="font-oswald text-xs uppercase tracking-[0.2em] px-2 py-0.5 mt-0.5" style={{ color: "#f39c12", border: "1px solid rgba(243,156,18,0.3)", backgroundColor: "rgba(243,156,18,0.06)" }}>
@@ -1233,6 +1290,14 @@ export default function Index() {
             </div>
           </>
         )}
+        {searchPhase === "connecting" && (
+          <div className="flex flex-col items-center gap-5 animate-result-in">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ border: "2px solid rgba(255,255,255,0.2)", animation: "pulse 1s ease-in-out infinite" }}>
+              <Icon name="Wifi" size={28} style={{ color: "rgba(255,255,255,0.5)" }} />
+            </div>
+            <span className="font-oswald text-lg tracking-[0.25em] uppercase" style={{ color: "rgba(255,255,255,0.5)" }}>Подключение…</span>
+          </div>
+        )}
         {searchPhase === "found" && (
           <div className="flex flex-col items-center gap-5 animate-result-in">
             <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(0,230,118,0.12)", border: "2px solid rgba(0,230,118,0.4)" }}>
@@ -1251,7 +1316,7 @@ export default function Index() {
             </span>
           </div>
         )}
-        {streak >= 5 && searchPhase === "searching" && (
+        {streak >= 5 && (searchPhase === "searching" || searchPhase === "connecting") && (
           <span className="font-rubik text-xs" style={{ color: "rgba(243,156,18,0.5)" }}>
             🔥 Серия {streak} на кону
           </span>
@@ -1456,7 +1521,7 @@ export default function Index() {
                 </span>
               </div>
               <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
-                x2 награды сгорели. Ты был в шаге от серии {result.streakLost + 1}
+                x2 награды сгорели. {result.nearMiss ? `${Math.round(result.playerTime)}мс разницы — ты был в шаге` : `Ты был в шаге от серии ${result.streakLost + 1}`}
               </span>
             </div>
           )}
@@ -1468,7 +1533,7 @@ export default function Index() {
                   Серия {result.streakLost} прервана
                 </span>
                 <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
-                  До x2 наград оставалось {5 - result.streakLost} {5 - result.streakLost === 1 ? "победа" : "победы"}
+                  {result.nearMiss ? `Ты был в шаге от серии ${result.streakLost + 1}` : `До x2 наград оставалось ${5 - result.streakLost} ${5 - result.streakLost === 1 ? "победа" : "победы"}`}
                 </span>
               </div>
             </div>

@@ -245,10 +245,10 @@
 @keyframes breathe {
   0%,
   100% {
-    opacity: 0;
+    opacity: 0.02;
   }
   50% {
-    opacity: 0.06;
+    opacity: 0.12;
   }
 }
 
