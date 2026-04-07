@@ -95,6 +95,12 @@ def handler(event: dict, context) -> dict:
         result_type = body.get("result")  # win / lose / false_start
         reaction_time = body.get("reaction_time")  # ms or None
 
+        if result_type not in ("win", "lose", "false_start"):
+            return resp(400, {"error": "invalid result type"})
+        if result_type != "false_start" and reaction_time is not None:
+            if not isinstance(reaction_time, (int, float)) or reaction_time < 80 or reaction_time > 5000:
+                return resp(400, {"error": "invalid reaction_time"})
+
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 

@@ -139,6 +139,14 @@ def handler(event: dict, context) -> dict:
         code = body.get("code", "").upper()
         reaction_time = body.get("reaction_time")  # ms int или -1 (false_start)
 
+        if reaction_time is None:
+            return resp(400, {"error": "reaction_time required"})
+        if not isinstance(reaction_time, (int, float)):
+            return resp(400, {"error": "reaction_time must be number"})
+        if reaction_time != -1 and (reaction_time < 80 or reaction_time > 5000):
+            return resp(400, {"error": "reaction_time out of range"})
+        reaction_time = int(reaction_time)
+
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(f"SELECT * FROM {SCHEMA}.rooms WHERE id=%s", (code,))
@@ -156,6 +164,15 @@ def handler(event: dict, context) -> dict:
             cur.close()
             conn.close()
             return resp(403, {"error": "not in room"})
+
+        if is_host and room["host_time"] is not None:
+            cur.close()
+            conn.close()
+            return resp(400, {"error": "already submitted"})
+        if is_guest and room["guest_time"] is not None:
+            cur.close()
+            conn.close()
+            return resp(400, {"error": "already submitted"})
 
         if is_host:
             cur.execute(

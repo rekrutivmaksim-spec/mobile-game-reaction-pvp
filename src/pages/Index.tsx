@@ -90,6 +90,7 @@ interface LeaderboardEntry {
 let audioCtx: AudioContext | null = null;
 function getAudioCtx() {
   if (!audioCtx) audioCtx = new (window.AudioContext || (window as unknown as Record<string, typeof AudioContext>).webkitAudioContext)();
+  if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
   return audioCtx;
 }
 function playHeartbeatOnce(volume = 0.3) {
@@ -342,6 +343,8 @@ export default function Index() {
     tensionTimersRef.current.forEach(clearTimeout);
     tensionTimersRef.current = [];
     if (mainTimerRef.current) clearTimeout(mainTimerRef.current);
+    waitTextTimers.current.forEach(clearTimeout);
+    waitTextTimers.current = [];
   }, []);
 
   // ── TENSION ──
@@ -557,6 +560,7 @@ export default function Index() {
 
     const delay = nearMiss === "close" ? 2200 : nearMiss === "edge" ? 1500 : 350;
     setTimeout(() => {
+      setNearMissBlackout(false);
       setScreenFlash("none");
       setScreen("result");
       if (didLeagueUp) {
@@ -697,13 +701,14 @@ export default function Index() {
             if (gameActiveRef.current) finishMatch("win", 999, -1, playerRef.current);
           }, 200);
         } else {
-          setTimeout(() => {
+          const botTimer = setTimeout(() => {
             if (gameActiveRef.current) finishMatch("lose", 9999, botTime, playerRef.current);
           }, botTime);
+          const timeoutTimer = setTimeout(() => {
+            if (gameActiveRef.current) finishMatch("lose", 5000, getBotReactionTime(isNewbie), playerRef.current);
+          }, 3000);
+          tensionTimersRef.current.push(botTimer, timeoutTimer);
         }
-        setTimeout(() => {
-          if (gameActiveRef.current) finishMatch("lose", 5000, getBotReactionTime(isNewbie), playerRef.current);
-        }, 3000);
       }, delay);
     }, 3800 + Math.random() * 400);
   }, [runTensionEffects, finishMatch]);
