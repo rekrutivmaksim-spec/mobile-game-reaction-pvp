@@ -277,6 +277,24 @@ export default function Index() {
   const pvpIsPlayer1Ref = useRef<boolean>(false);
   const pvpPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pvpResultPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startMatchBusyRef = useRef<boolean>(false);
+  const pvpSubmitAndWaitRef = useRef<((matchId: string, reactionMs: number) => void) | null>(null);
+
+  // Очистка всех PvP таймеров
+  const stopPvPTimers = useCallback(() => {
+    if (pvpPollTimerRef.current) { clearTimeout(pvpPollTimerRef.current); pvpPollTimerRef.current = null; }
+    if (pvpResultPollRef.current) { clearTimeout(pvpResultPollRef.current); pvpResultPollRef.current = null; }
+  }, []);
+
+  // Выход из очереди матчмейкинга
+  const leaveQueue = useCallback(() => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    fetch(`${MM_API}/?action=leave`, {
+      method: "POST",
+      headers: { "X-Player-Id": pid },
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { playerRef.current = player; }, [player]);
@@ -680,13 +698,17 @@ export default function Index() {
       } catch { /* audio not available */ }
 
       if (opts.isPvP) {
-        // PvP режим: если игрок не нажал за 4 сек — пропуск, fallback на бота
-        // submitPvPAndWait стартует через handleGameTap; таймаут — страховка
+        // PvP режим: если игрок не нажал за 4 сек — отправляем максимальное время и ждём соперника
         const timeoutTimer = setTimeout(() => {
           if (!gameActiveRef.current) return;
           gameActiveRef.current = false;
-          finishMatch("lose", 5000, getBotReactionTime(isNewbie), playerRef.current);
-          pvpMatchIdRef.current = null;
+          const matchId = pvpMatchIdRef.current;
+          if (matchId) {
+            setWaitText("ЖДЁМ СОПЕРНИКА...");
+            pvpSubmitAndWaitRef.current?.(matchId, 4999);
+          } else {
+            finishMatch("lose", 5000, getBotReactionTime(isNewbie), playerRef.current);
+          }
         }, 4000);
         tensionTimersRef.current.push(timeoutTimer);
       } else {
@@ -711,6 +733,12 @@ export default function Index() {
 
   // ── START MATCH ──
   const startMatch = useCallback(() => {
+    // Дедупликация: блокируем повторные вызовы пока матч стартует
+    if (startMatchBusyRef.current) return;
+    startMatchBusyRef.current = true;
+    // Снимаем блок через 1 сек (к этому времени будет понятно waiting/matched)
+    setTimeout(() => { startMatchBusyRef.current = false; }, 1000);
+
     const currentCoins = playerRef.current?.coins ?? 0;
     if (currentCoins < 20) {
       setEnduranceActive(false);
@@ -726,8 +754,8 @@ export default function Index() {
     setScreen("searching");
     setResult(null);
     setSearchPhase("searching");
-    // Очистка старых PvP таймеров
-    if (pvpPollTimerRef.current) clearTimeout(pvpPollTimerRef.current);
+    // Очистка старых PvP таймеров и состояния
+    stopPvPTimers();
     pvpMatchIdRef.current = null;
 
     const pid = localStorage.getItem("ne_slomaisa_player_id");
@@ -744,16 +772,20 @@ export default function Index() {
     const MAX_WAIT_MS = 5000;
 
     const fallbackToBot = () => {
-      // Покидаем очередь
-      fetch(`${MM_API}/?action=leave`, {
-        method: "POST",
-        headers: { "X-Player-Id": pid },
-      }).catch(() => {});
+      // Очищаем таймеры поллинга и выходим из очереди
+      stopPvPTimers();
+      leaveQueue();
+      pvpMatchIdRef.current = null;
       const fakeOpponent = NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)] + Math.floor(Math.random() * 99);
       setOpponentName(fakeOpponent);
-      setSearchPhase("ready");
-      if (navigator.vibrate) navigator.vibrate([15, 100, 15]);
-      setTimeout(() => runGameRound({ isPvP: false }), 1000);
+      // Показываем имя соперника — 1.5 сек
+      setSearchPhase("found");
+      if (navigator.vibrate) navigator.vibrate([30]);
+      setTimeout(() => {
+        setSearchPhase("ready");
+        if (navigator.vibrate) navigator.vibrate([15, 100, 15]);
+      }, 1500);
+      setTimeout(() => runGameRound({ isPvP: false }), 2700);
     };
 
     const startPvPMatch = (match: { id: string; player1_id: string; player2_id: string; player1_nickname: string; player2_nickname: string; signal_delay_ms: number }) => {
@@ -761,13 +793,16 @@ export default function Index() {
       pvpIsPlayer1Ref.current = match.player1_id === pid;
       const opName = pvpIsPlayer1Ref.current ? match.player2_nickname : match.player1_nickname;
       setOpponentName(opName);
+      // Показываем имя соперника — 1.8 сек
       setSearchPhase("found");
-      if (navigator.vibrate) navigator.vibrate([30]);
+      if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
+      // Затем "Не нажми раньше..." — 1.2 сек
       setTimeout(() => {
         setSearchPhase("ready");
         if (navigator.vibrate) navigator.vibrate([15, 100, 15]);
-      }, 800);
-      setTimeout(() => runGameRound({ delay: match.signal_delay_ms, isPvP: true }), 1800);
+      }, 1800);
+      // И только потом — в игру
+      setTimeout(() => runGameRound({ delay: match.signal_delay_ms, isPvP: true }), 3000);
     };
 
     // Шаг 1: встаём в очередь
@@ -806,15 +841,42 @@ export default function Index() {
         pvpPollTimerRef.current = setTimeout(poll, 800);
       })
       .catch(() => fallbackToBot());
-  }, [runGameRound]);
+  }, [runGameRound, stopPvPTimers, leaveQueue]);
 
   // Регистрируем startMatch в ref для deep link
   useEffect(() => { startMatchRef.current = startMatch; }, [startMatch]);
+
+  // Cleanup: выход из очереди при смене экрана (не в search/game)
+  useEffect(() => {
+    if (screen !== "searching" && screen !== "game") {
+      stopPvPTimers();
+      if (!pvpMatchIdRef.current) {
+        leaveQueue();
+      }
+    }
+  }, [screen, stopPvPTimers, leaveQueue]);
+
+  // Cleanup при размонтировании компонента
+  useEffect(() => {
+    return () => {
+      stopPvPTimers();
+      leaveQueue();
+    };
+  }, [stopPvPTimers, leaveQueue]);
 
   // ── PvP: отправить своё время + дождаться соперника ──
   const submitPvPAndWait = useCallback((matchId: string, myReactionMs: number) => {
     const pid = localStorage.getItem("ne_slomaisa_player_id");
     if (!pid) return;
+
+    let finished = false;
+    const finishOnce = (type: ResultType, myT: number, opT: number) => {
+      if (finished) return;
+      finished = true;
+      stopPvPTimers();
+      pvpMatchIdRef.current = null;
+      finishMatch(type, myT, opT, playerRef.current);
+    };
 
     fetch(`${MM_API}/?action=submit`, {
       method: "POST",
@@ -822,42 +884,48 @@ export default function Index() {
       body: JSON.stringify({ match_id: matchId, reaction_time: myReactionMs }),
     }).catch(() => {});
 
-    // Опрос результата (до 5 сек)
+    // Опрос результата (до 6 сек)
     const startedAt = Date.now();
     const pollResult = () => {
-      if (!gameActiveRef.current && pvpMatchIdRef.current !== matchId) return;
-      if (Date.now() - startedAt > 5000) {
-        // Соперник не ответил — засчитываем победу
-        finishMatch(myReactionMs === -1 ? "false_start" : "win", myReactionMs, 5000, playerRef.current);
-        pvpMatchIdRef.current = null;
+      if (finished) return;
+      // Если матч сменился — значит запущен новый раунд, останавливаемся
+      if (pvpMatchIdRef.current !== matchId) return;
+      if (Date.now() - startedAt > 6000) {
+        // Соперник не ответил — засчитываем победу (если мы не false_start)
+        if (myReactionMs === -1) {
+          finishOnce("false_start", -1, 5000);
+        } else {
+          finishOnce("win", myReactionMs, 5000);
+        }
         return;
       }
       fetch(`${MM_API}/?action=poll&player_id=${pid}`)
         .then(r => r.json())
         .then(d => {
+          if (finished) return;
           if (d.status === "finished" && d.match) {
             const m = d.match;
             const isP1 = m.player1_id === pid;
             const myT = isP1 ? m.player1_time : m.player2_time;
             const opT = isP1 ? m.player2_time : m.player1_time;
+            const finalMyT = (myT === null || myT === undefined) ? myReactionMs : myT;
+            const finalOpT = (opT === null || opT === undefined) ? 5000 : opT;
             let resultType: ResultType;
-            if (myT === -1) resultType = "false_start";
+            if (finalMyT === -1) resultType = "false_start";
             else if (m.winner_id === pid) resultType = "win";
-            else if (m.winner_id === null) resultType = "lose";
             else resultType = "lose";
-            finishMatch(resultType, myT ?? myReactionMs, opT ?? 5000, playerRef.current);
-            pvpMatchIdRef.current = null;
-          } else if (d.status === "matched") {
-            // Соперник ещё играет
-            pvpResultPollRef.current = setTimeout(pollResult, 600);
+            finishOnce(resultType, finalMyT, finalOpT);
           } else {
             pvpResultPollRef.current = setTimeout(pollResult, 600);
           }
         })
-        .catch(() => { pvpResultPollRef.current = setTimeout(pollResult, 600); });
+        .catch(() => { if (!finished) pvpResultPollRef.current = setTimeout(pollResult, 600); });
     };
     pvpResultPollRef.current = setTimeout(pollResult, 400);
-  }, [finishMatch]);
+  }, [finishMatch, stopPvPTimers]);
+
+  // Регистрируем submitPvPAndWait в ref для использования внутри runGameRound
+  useEffect(() => { pvpSubmitAndWaitRef.current = submitPvPAndWait; }, [submitPvPAndWait]);
 
   // ── PLAYER TAP ──
   const handleGameTap = useCallback(() => {
@@ -1512,13 +1580,21 @@ export default function Index() {
           </div>
         )}
         {searchPhase === "found" && (
-          <div className="flex flex-col items-center gap-5 animate-result-in">
+          <div className="flex flex-col items-center gap-6 animate-result-in px-8">
             <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(0,230,118,0.12)", border: "2px solid rgba(0,230,118,0.4)" }}>
               <Icon name="Check" size={28} style={{ color: "#00e676" }} />
             </div>
-            <div className="flex flex-col items-center gap-2">
-              <span className="font-oswald text-lg tracking-[0.2em] uppercase" style={{ color: "#00e676" }}>Найден</span>
-              <span className="font-oswald text-2xl font-bold text-white">{opponentName}</span>
+            <span className="font-oswald text-sm tracking-[0.3em] uppercase" style={{ color: "#00e676" }}>соперник найден</span>
+            <div className="flex items-center gap-4 w-full max-w-xs">
+              <div className="flex-1 flex flex-col items-center gap-1">
+                <span className="font-rubik text-[10px] uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.3)" }}>ты</span>
+                <span className="font-oswald text-lg font-bold text-white truncate max-w-[120px]">{player?.nickname ?? "Игрок"}</span>
+              </div>
+              <span className="font-oswald text-xl font-bold" style={{ color: "#c0392b" }}>VS</span>
+              <div className="flex-1 flex flex-col items-center gap-1">
+                <span className="font-rubik text-[10px] uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.3)" }}>соперник</span>
+                <span className="font-oswald text-lg font-bold truncate max-w-[120px]" style={{ color: "#f39c12" }}>{opponentName}</span>
+              </div>
             </div>
           </div>
         )}

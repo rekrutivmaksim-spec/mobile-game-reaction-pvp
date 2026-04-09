@@ -67,10 +67,12 @@ def handler(event: dict, context) -> dict:
             cur.close(); conn.close()
             return resp(404, {"error": "player not found"})
 
-        # Если игрок уже в активном матче — возвращаем его
+        # Проверка активного матча (созданного не более 60 сек назад)
         cur.execute(
             f"""SELECT * FROM {SCHEMA}.pvp_matches
-                WHERE status='playing' AND (player1_id=%s OR player2_id=%s)
+                WHERE status='playing'
+                  AND created_at > NOW() - INTERVAL '60 seconds'
+                  AND (player1_id=%s OR player2_id=%s)
                 ORDER BY created_at DESC LIMIT 1""",
             (player_id, player_id)
         )
@@ -79,22 +81,45 @@ def handler(event: dict, context) -> dict:
             cur.close(); conn.close()
             return resp(200, {"status": "matched", "match": dict(existing)})
 
-        # Убираем игрока из старых записей очереди
-        cur.execute(f"DELETE FROM {SCHEMA}.matchmaking_queue WHERE player_id=%s", (player_id,))
-
-        # Ищем соперника в очереди (первый пришёл — первого и берём)
+        # Атомарно удаляем игрока из очереди (если был) — защита от дубля
         cur.execute(
-            f"""SELECT * FROM {SCHEMA}.matchmaking_queue
-                WHERE player_id != %s AND match_id IS NULL
-                  AND joined_at > NOW() - INTERVAL '30 seconds'
-                ORDER BY joined_at ASC
-                LIMIT 1
-                FOR UPDATE SKIP LOCKED""",
+            f"DELETE FROM {SCHEMA}.matchmaking_queue WHERE player_id=%s",
+            (player_id,)
+        )
+
+        # Атомарно захватываем соперника через DELETE..RETURNING
+        # (не позволит двум игрокам захватить одного и того же)
+        cur.execute(
+            f"""DELETE FROM {SCHEMA}.matchmaking_queue
+                WHERE player_id = (
+                    SELECT player_id FROM {SCHEMA}.matchmaking_queue
+                    WHERE player_id != %s
+                      AND match_id IS NULL
+                      AND joined_at > NOW() - INTERVAL '30 seconds'
+                    ORDER BY joined_at ASC
+                    LIMIT 1
+                    FOR UPDATE SKIP LOCKED
+                )
+                RETURNING *""",
             (player_id,)
         )
         opponent = cur.fetchone()
 
         if opponent:
+            # Доп. защита: сверяем что соперник — не мы сами
+            if opponent["player_id"] == player_id:
+                # Этого не должно происходить, но на всякий
+                cur.execute(
+                    f"""INSERT INTO {SCHEMA}.matchmaking_queue (player_id, nickname, rating, joined_at)
+                        VALUES (%s, %s, %s, NOW())
+                        ON CONFLICT (player_id) DO UPDATE
+                        SET joined_at=NOW(), match_id=NULL, nickname=EXCLUDED.nickname, rating=EXCLUDED.rating""",
+                    (player_id, pl["nickname"], pl["rating"])
+                )
+                conn.commit()
+                cur.close(); conn.close()
+                return resp(200, {"status": "waiting"})
+
             # Создаём матч между двумя реальными игроками
             signal_delay = random.randint(1800, 4000)
             cur.execute(
@@ -106,20 +131,16 @@ def handler(event: dict, context) -> dict:
             )
             match = dict(cur.fetchone())
 
-            # Помечаем соперника как попавшего в матч
-            cur.execute(
-                f"UPDATE {SCHEMA}.matchmaking_queue SET match_id=%s WHERE player_id=%s",
-                (match["id"], opponent["player_id"])
-            )
-
             conn.commit()
             cur.close(); conn.close()
             return resp(200, {"status": "matched", "match": match})
 
-        # Свободных нет — встаём в очередь
+        # Свободных нет — встаём в очередь (UPSERT для защиты от дубля)
         cur.execute(
             f"""INSERT INTO {SCHEMA}.matchmaking_queue (player_id, nickname, rating, joined_at)
-                VALUES (%s, %s, %s, NOW())""",
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (player_id) DO UPDATE
+                SET joined_at=NOW(), match_id=NULL, nickname=EXCLUDED.nickname, rating=EXCLUDED.rating""",
             (player_id, pl["nickname"], pl["rating"])
         )
         conn.commit()
@@ -131,10 +152,12 @@ def handler(event: dict, context) -> dict:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        # Проверяем активный матч
+        # Проверяем активный матч (только свежие, не старше 60 сек)
         cur.execute(
             f"""SELECT * FROM {SCHEMA}.pvp_matches
-                WHERE status='playing' AND (player1_id=%s OR player2_id=%s)
+                WHERE status='playing'
+                  AND created_at > NOW() - INTERVAL '60 seconds'
+                  AND (player1_id=%s OR player2_id=%s)
                 ORDER BY created_at DESC LIMIT 1""",
             (player_id, player_id)
         )
@@ -143,10 +166,12 @@ def handler(event: dict, context) -> dict:
             cur.close(); conn.close()
             return resp(200, {"status": "matched", "match": dict(match)})
 
-        # Проверяем, есть ли финальный матч (оба сдали время)
+        # Проверяем финальный матч (только свежие, не старше 30 сек)
         cur.execute(
             f"""SELECT * FROM {SCHEMA}.pvp_matches
-                WHERE status='finished' AND (player1_id=%s OR player2_id=%s)
+                WHERE status='finished'
+                  AND finished_at > NOW() - INTERVAL '30 seconds'
+                  AND (player1_id=%s OR player2_id=%s)
                 ORDER BY finished_at DESC LIMIT 1""",
             (player_id, player_id)
         )
@@ -192,6 +217,11 @@ def handler(event: dict, context) -> dict:
         if not is_p1 and not is_p2:
             cur.close(); conn.close()
             return resp(403, {"error": "not your match"})
+
+        # Матч уже завершён — возвращаем финальный результат
+        if match["status"] == "finished":
+            cur.close(); conn.close()
+            return resp(200, {"match": match})
 
         # Антидубль
         if is_p1 and match["player1_time"] is not None:
