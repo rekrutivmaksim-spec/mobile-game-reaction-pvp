@@ -601,6 +601,19 @@ export default function Index() {
 
   // ── START MATCH ──
   const startMatch = useCallback(() => {
+    // Проверка монет: ставка матча = 20 монет
+    const currentCoins = playerRef.current?.coins ?? 0;
+    if (currentCoins < 20) {
+      setEnduranceActive(false);
+      setEnduranceCount(0);
+      enduranceActiveRef.current = false;
+      enduranceCountRef.current = 0;
+      setShopToast("Нужно минимум 20 монет для игры");
+      setTimeout(() => setShopToast(""), 2500);
+      setShopTab("coins");
+      setScreen("shop");
+      return;
+    }
     trackEvent("match_start");
     setScreen("searching");
     setResult(null);
@@ -893,6 +906,11 @@ export default function Index() {
       })
       .finally(() => setShopLoading(false));
   }, [player]);
+
+  // Автозагрузка shop при входе на экран
+  useEffect(() => {
+    if (screen === "shop") loadShop();
+  }, [screen, loadShop]);
 
   // ── SHOP: купить товар ──
   const buyItem = useCallback((itemId: string) => {
@@ -1207,14 +1225,14 @@ export default function Index() {
             >
               {streak >= 3 ? "рискнёшь продолжить?" : "ошибка = поражение"}
             </span>
-            {coins <= 0 ? (
+            {coins < 20 ? (
               <div className="w-full flex flex-col gap-2">
                 <div className="w-full border px-4 py-3 flex flex-col items-center gap-1" style={{ borderColor: "rgba(192,57,43,0.4)", backgroundColor: "rgba(192,57,43,0.06)" }}>
-                  <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#c0392b" }}>Монеты на нуле</span>
-                  <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>Пополни баланс чтобы продолжить</span>
+                  <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#c0392b" }}>Мало монет</span>
+                  <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>Нужно минимум 20 монет для игры · у тебя {coins}</span>
                 </div>
                 <button
-                  onClick={() => { setScreen("shop"); setShopTab("coins"); loadShop(); }}
+                  onClick={() => { setShopTab("coins"); setScreen("shop"); }}
                   className="w-full h-14 font-oswald text-base font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
                   style={{ backgroundColor: "#f39c12", color: "#0f0f0f" }}
                 >
@@ -2107,7 +2125,19 @@ export default function Index() {
         </div>
 
         <div className="flex flex-col gap-3 w-full">
-          {isDone ? (
+          {coins < 20 ? (
+            <div className="w-full flex flex-col gap-2">
+              <div className="w-full border px-4 py-3 flex flex-col items-center gap-1" style={{ borderColor: "rgba(192,57,43,0.4)", backgroundColor: "rgba(192,57,43,0.06)" }}>
+                <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#c0392b" }}>Мало монет</span>
+                <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>Нужно минимум 20 монет · у тебя {coins}</span>
+              </div>
+              <button onClick={() => { setShopTab("coins"); setScreen("shop"); }}
+                className="w-full h-14 font-oswald text-base font-bold tracking-[0.2em] uppercase active:scale-95 transition-all"
+                style={{ backgroundColor: "#f39c12", color: "#0f0f0f" }}>
+                🪙 КУПИТЬ МОНЕТЫ
+              </button>
+            </div>
+          ) : isDone ? (
             <button onClick={() => { setEnduranceCount(0); startMatch(); }}
               className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase active:scale-95 transition-all"
               style={{ backgroundColor: "#00e676", color: "#0f0f0f" }}>
