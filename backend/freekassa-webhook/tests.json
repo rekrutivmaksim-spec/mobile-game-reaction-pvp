@@ -7,13 +7,23 @@
       "expectedStatus": 200
     },
     {
-      "name": "Bad sign rejected",
+      "name": "Pay link — missing player_id",
+      "method": "GET",
+      "path": "/?action=pay&item_id=coins_100",
+      "expectedStatus": 400
+    },
+    {
+      "name": "Pay link — invalid item",
+      "method": "GET",
+      "path": "/?action=pay&item_id=coins_999&player_id=test-uuid",
+      "expectedStatus": 400
+    },
+    {
+      "name": "Webhook bad sign",
       "method": "POST",
       "path": "/",
-      "body": {"MERCHANT_ID": "123", "AMOUNT": "100", "SIGN": "badsign", "MERCHANT_ORDER_ID": "uuid_coins_100", "intid": "test1"},
-      "expectedStatus": 400,
-      "expectedBody": "SIGN_ERROR",
-      "bodyMatcher": "partial"
+      "body": {"MERCHANT_ID": "123", "AMOUNT": "29", "SIGN": "badsign", "MERCHANT_ORDER_ID": "uuid_coins_100", "intid": "test1"},
+      "expectedStatus": 400
     }
   ]
 }

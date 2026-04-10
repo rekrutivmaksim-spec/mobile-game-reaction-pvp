@@ -1,6 +1,7 @@
 """
-Freekassa webhook — приём уведомлений об успешной оплате.
-POST / — Freekassa отправляет сюда данные после успешного платежа.
+Freekassa:
+- GET  /?action=pay  — сгенерировать ссылку на оплату
+- POST /             — webhook от Freekassa после успешного платежа
 """
 import hashlib
 import json
@@ -11,15 +12,14 @@ SCHEMA = "t_p67729910_mobile_game_reaction"
 CORS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, X-Player-Id",
 }
 
-# Сколько монет выдаётся за каждый пакет (совпадает с item_id в shop_items)
 COIN_PACKAGES = {
-    "coins_100":  100,
-    "coins_300":  300,
-    "coins_700":  700,
-    "coins_1500": 1500,
+    "coins_100":  {"coins": 100,  "price": "29.00"},
+    "coins_300":  {"coins": 300,  "price": "49.00"},
+    "coins_700":  {"coins": 700,  "price": "99.00"},
+    "coins_1500": {"coins": 1500, "price": "149.00"},
 }
 
 
@@ -28,7 +28,15 @@ def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
 
-def resp(status, body_str):
+def resp_json(status, body):
+    return {
+        "statusCode": status,
+        "headers": {**CORS, "Content-Type": "application/json"},
+        "body": json.dumps(body, ensure_ascii=False),
+    }
+
+
+def resp_text(status, body_str):
     return {
         "statusCode": status,
         "headers": {**CORS, "Content-Type": "text/plain"},
@@ -36,83 +44,113 @@ def resp(status, body_str):
     }
 
 
-def verify_sign(merchant_id, amount, secret1, order_id, sign):
-    """Проверяем подпись от Freekassa: MD5(merchant_id:amount:secret1:order_id)"""
+def make_pay_url(shop_id, amount, secret1, order_id, currency="RUB"):
+    """Формируем ссылку на оплату Freekassa."""
+    sign_raw = f"{shop_id}:{amount}:{secret1}:{currency}:{order_id}"
+    sign = hashlib.md5(sign_raw.encode()).hexdigest()
+    return (
+        f"https://pay.freekassa.net/?"
+        f"m={shop_id}&oa={amount}&currency={currency}"
+        f"&o={order_id}&s={sign}&lang=ru"
+    )
+
+
+def verify_webhook_sign(merchant_id, amount, secret1, order_id, sign):
+    """Проверяем подпись входящего webhook от Freekassa."""
     raw = f"{merchant_id}:{amount}:{secret1}:{order_id}"
     return hashlib.md5(raw.encode()).hexdigest() == sign
 
 
 def handler(event: dict, context) -> dict:
-    """Webhook от Freekassa: начисляем монеты игроку после оплаты."""
+    """Freekassa: генерация ссылки оплаты и приём webhook."""
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
 
-    # Freekassa шлёт POST с form-urlencoded или GET-параметрами
+    method = event.get("httpMethod", "GET")
     params = event.get("queryStringParameters") or {}
-    body_raw = event.get("body") or ""
+    headers = event.get("headers") or {}
+    action = params.get("action", "")
 
-    # Парсим form-urlencoded из body
-    form = {}
-    if body_raw:
-        for pair in body_raw.split("&"):
-            if "=" in pair:
-                k, v = pair.split("=", 1)
-                from urllib.parse import unquote_plus
-                form[unquote_plus(k)] = unquote_plus(v)
+    # ── GET /?action=pay — генерация ссылки на оплату ──
+    if method == "GET" and action == "pay":
+        player_id = headers.get("X-Player-Id") or params.get("player_id")
+        item_id = params.get("item_id")
 
-    data = {**params, **form}
+        if not player_id:
+            return resp_json(400, {"error": "player_id required"})
+        if not item_id or item_id not in COIN_PACKAGES:
+            return resp_json(400, {"error": "invalid item_id"})
 
-    merchant_id  = data.get("MERCHANT_ID", "")
-    amount       = data.get("AMOUNT", "")
-    sign         = data.get("SIGN", "")
-    order_id     = data.get("MERCHANT_ORDER_ID", "")  # формат: {player_id}_{item_id}
-    payment_id   = data.get("intid", "")
+        shop_id = os.environ.get("FREEKASSA_SHOP_ID", "")
+        secret1 = os.environ.get("FREEKASSA_SECRET1", "")
+        pkg = COIN_PACKAGES[item_id]
 
-    secret1 = os.environ.get("FREEKASSA_SECRET1", "")
+        # order_id = {player_id}_{item_id}  — по нему после оплаты начислим монеты
+        order_id = f"{player_id}_{item_id}"
+        pay_url = make_pay_url(shop_id, pkg["price"], secret1, order_id)
 
-    # Проверка подписи
-    if not verify_sign(merchant_id, amount, secret1, order_id, sign):
-        return resp(400, "SIGN_ERROR")
+        return resp_json(200, {"url": pay_url, "coins": pkg["coins"], "price": pkg["price"]})
 
-    # order_id формат: {player_id}_{item_id}, например: uuid_coins_300
-    parts = order_id.split("_", 1)
-    if len(parts) != 2:
-        return resp(400, "BAD_ORDER_ID")
+    # ── POST / — webhook от Freekassa после успешного платежа ──
+    if method == "POST":
+        body_raw = event.get("body") or ""
 
-    player_id, item_id = parts[0], parts[1]
-    coins_to_add = COIN_PACKAGES.get(item_id, 0)
+        form = {}
+        if body_raw:
+            from urllib.parse import unquote_plus
+            for pair in body_raw.split("&"):
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    form[unquote_plus(k)] = unquote_plus(v)
 
-    if coins_to_add <= 0:
-        return resp(400, "UNKNOWN_ITEM")
+        data = {**params, **form}
 
-    from psycopg2.extras import RealDictCursor
-    conn = get_conn()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+        merchant_id = data.get("MERCHANT_ID", "")
+        amount      = data.get("AMOUNT", "")
+        sign        = data.get("SIGN", "")
+        order_id    = data.get("MERCHANT_ORDER_ID", "")
+        payment_id  = data.get("intid", "")
 
-    # Защита от дублей — проверяем, не был ли этот платёж уже обработан
-    cur.execute(
-        f"SELECT id FROM {SCHEMA}.payments WHERE payment_id=%s",
-        (payment_id,)
-    )
-    if cur.fetchone():
-        cur.close(); conn.close()
-        return resp(200, "YES")  # Freekassa ждёт "YES" — говорим что всё ок
+        secret1 = os.environ.get("FREEKASSA_SECRET1", "")
 
-    # Начисляем монеты
-    cur.execute(
-        f"UPDATE {SCHEMA}.players SET coins = coins + %s WHERE id = %s",
-        (coins_to_add, player_id)
-    )
+        if not verify_webhook_sign(merchant_id, amount, secret1, order_id, sign):
+            return resp_text(400, "SIGN_ERROR")
 
-    # Записываем платёж
-    cur.execute(
-        f"""INSERT INTO {SCHEMA}.payments (player_id, item_id, coins_added, amount, payment_id, order_id)
-            VALUES (%s, %s, %s, %s, %s, %s)""",
-        (player_id, item_id, coins_to_add, amount, payment_id, order_id)
-    )
+        # order_id = {player_id}_{item_id}
+        parts = order_id.split("_", 1)
+        if len(parts) != 2:
+            return resp_text(400, "BAD_ORDER_ID")
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        player_id, item_id = parts[0], parts[1]
+        pkg = COIN_PACKAGES.get(item_id)
+        if not pkg:
+            return resp_text(400, "UNKNOWN_ITEM")
 
-    return resp(200, "YES")
+        coins_to_add = pkg["coins"]
+
+        from psycopg2.extras import RealDictCursor
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Защита от дублей
+        cur.execute(f"SELECT id FROM {SCHEMA}.payments WHERE payment_id=%s", (payment_id,))
+        if cur.fetchone():
+            cur.close(); conn.close()
+            return resp_text(200, "YES")
+
+        cur.execute(
+            f"UPDATE {SCHEMA}.players SET coins = coins + %s WHERE id = %s",
+            (coins_to_add, player_id)
+        )
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.payments (player_id, item_id, coins_added, amount, payment_id, order_id)
+                VALUES (%s, %s, %s, %s, %s, %s)""",
+            (player_id, item_id, coins_to_add, amount, payment_id, order_id)
+        )
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return resp_text(200, "YES")
+
+    return resp_json(404, {"error": "not found"})

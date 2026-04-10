@@ -8,6 +8,7 @@ const API       = "https://functions.poehali.dev/7000f2b2-907e-4557-90a3-c4e459c
 const DUEL_API  = "https://functions.poehali.dev/fd904cf2-ca8c-4cda-9ec3-e5fb219c5102";
 const CHALL_API = "https://functions.poehali.dev/741e5a6a-988f-460f-a7a9-c35ed918cb69";
 const SHOP_API  = "https://functions.poehali.dev/ec65f2ad-bca4-448e-aadc-868e4837731e";
+const PAY_API   = "https://functions.poehali.dev/8ffbd5f3-5f2d-4c3d-a147-6902ce201a75";
 const MM_API    = "https://functions.poehali.dev/6051dd88-db93-4e00-8466-74fea305e9bb";
 
 // ─────────────── TYPES ───────────────
@@ -2702,7 +2703,14 @@ export default function Index() {
                 <button
                   className="w-full h-11 font-oswald text-base font-bold tracking-[0.15em] uppercase transition-all active:scale-95"
                   style={{ backgroundColor: "#f39c12", color: "#0f0f0f" }}
-                  onClick={() => { trackEvent("shop_pack_click"); }}
+                  onClick={() => {
+                    trackEvent("shop_pack_click");
+                    const pid = localStorage.getItem("ne_slomaisa_player_id");
+                    if (!pid) return;
+                    fetch(`${PAY_API}/?action=pay&item_id=coins_300&player_id=${pid}`, { headers: { "X-Player-Id": pid } })
+                      .then(r => r.json())
+                      .then(d => { if (d.url) window.open(d.url, "_blank"); });
+                  }}
                 >
                   49 ₽
                 </button>
@@ -2723,7 +2731,15 @@ export default function Index() {
                   <button
                     className="px-4 h-9 font-oswald text-sm font-bold uppercase tracking-wider transition-all active:scale-95"
                     style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}
-                    onClick={() => { trackEvent("shop_coins_click", { amount: pack.amount, price: pack.price }); }}
+                    onClick={() => {
+                      trackEvent("shop_coins_click", { amount: pack.amount, price: pack.price });
+                      const pid = localStorage.getItem("ne_slomaisa_player_id");
+                      if (!pid) return;
+                      const itemId = `coins_${pack.amount}`;
+                      fetch(`${PAY_API}/?action=pay&item_id=${itemId}&player_id=${pid}`, { headers: { "X-Player-Id": pid } })
+                        .then(r => r.json())
+                        .then(d => { if (d.url) window.open(d.url, "_blank"); });
+                    }}
                   >
                     {pack.price} ₽
                   </button>
