@@ -56,6 +56,22 @@
       "expectedStatus": 400,
       "expectedBody": {"error": "player_id required"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Ad double — missing player_id",
+      "method": "POST",
+      "path": "/?action=ad-double",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "player_id required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Ad revenge — missing player_id",
+      "method": "POST",
+      "path": "/?action=ad-revenge",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "player_id required"},
+      "bodyMatcher": "partial"
     }
   ]
 }

@@ -753,6 +753,8 @@ export default function Index() {
     trackEvent("match_start");
     setScreen("searching");
     setResult(null);
+    setAdDoubleUsed(false);
+    setAdRevengeUsed(false);
     setSearchPhase("searching");
     // Очистка старых PvP таймеров и состояния
     stopPvPTimers();
@@ -1124,8 +1126,85 @@ export default function Index() {
     if (screen === "shop") loadShop();
   }, [screen, loadShop]);
 
-  // ── AD REWARD: посмотреть видео за 100 монет ──
+  // ── AD REWARD ──
   const [adLoading, setAdLoading] = useState(false);
+  const [adDoubleUsed, setAdDoubleUsed] = useState(false);
+  const [adRevengeUsed, setAdRevengeUsed] = useState(false);
+
+  // Удвоить награду за победу (после просмотра рекламы)
+  const watchAdForDouble = useCallback(async () => {
+    if (adLoading || adDoubleUsed || !result || result.type !== "win") return;
+    setAdLoading(true);
+    try {
+      const adResult = await showRewardedAd();
+      if (adResult !== "rewarded") {
+        setShopToast("Видео не досмотрено");
+        setTimeout(() => setShopToast(""), 2000);
+        return;
+      }
+      const pid = localStorage.getItem("ne_slomaisa_player_id");
+      if (!pid) return;
+      const bonusCoins = Math.abs(result.coinsEarned);
+      const res = await fetch(`${API}/?action=ad-double`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+        body: JSON.stringify({ bonus_coins: bonusCoins }),
+      });
+      const d = await res.json();
+      if (d.player) {
+        setPlayer(d.player);
+        setAdDoubleUsed(true);
+        setShopToast(`+${d.coins_added} монет! Награда удвоена`);
+        setTimeout(() => setShopToast(""), 2500);
+        trackEvent("ad_double", { coins: d.coins_added });
+      }
+    } catch {
+      setShopToast("Ошибка загрузки видео");
+      setTimeout(() => setShopToast(""), 2000);
+    } finally {
+      setAdLoading(false);
+    }
+  }, [adLoading, adDoubleUsed, result]);
+
+  // Реванш: вернуть монеты и рейтинг за проигрыш
+  const watchAdForRevenge = useCallback(async () => {
+    if (adLoading || adRevengeUsed || !result || result.type === "win") return;
+    setAdLoading(true);
+    try {
+      const adResult = await showRewardedAd();
+      if (adResult !== "rewarded") {
+        setShopToast("Видео не досмотрено");
+        setTimeout(() => setShopToast(""), 2000);
+        return;
+      }
+      const pid = localStorage.getItem("ne_slomaisa_player_id");
+      if (!pid) return;
+      const refundCoins = Math.abs(result.coinsEarned);
+      const refundRating = Math.abs(result.ratingChange);
+      const restoreStreak = result.streakLost ?? 0;
+      const res = await fetch(`${API}/?action=ad-revenge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+        body: JSON.stringify({ refund_coins: refundCoins, refund_rating: refundRating, restore_streak: restoreStreak }),
+      });
+      const d = await res.json();
+      if (d.player) {
+        setPlayer(d.player);
+        setAdRevengeUsed(true);
+        const streakMsg = restoreStreak >= 2 ? ` Серия ${restoreStreak} восстановлена!` : "";
+        setShopToast(`+${d.refunded_coins} монет, +${d.refunded_rating} рейтинг!${streakMsg}`);
+        setTimeout(() => setShopToast(""), 3000);
+        trackEvent("ad_revenge", { coins: d.refunded_coins, rating: d.refunded_rating, streak: restoreStreak });
+      }
+    } catch {
+      setShopToast("Ошибка загрузки видео");
+      setTimeout(() => setShopToast(""), 2000);
+    } finally {
+      setAdLoading(false);
+    }
+  }, [adLoading, adRevengeUsed, result]);
+
+  // Посмотреть видео за 100 монет
   const watchAdForCoins = useCallback(async () => {
     if (adLoading) return;
     setAdLoading(true);
@@ -1876,39 +1955,44 @@ export default function Index() {
           >
             {enduranceActive ? `НЕ СЛОМАЙСЯ (${enduranceCount}/${enduranceGoal})` : "ЕЩЁ РАЗ"}
           </button>
-          {isWin && (
+          {isWin && !adDoubleUsed && (
             <button
               className="w-full h-12 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
-              style={{ backgroundColor: "#f39c12", color: "#0f0f0f" }}
-              onClick={() => {
-                trackEvent("double_reward_click");
-                // TODO: реклама → удвоение
-              }}
+              style={{ backgroundColor: "#f39c12", color: "#0f0f0f", opacity: adLoading ? 0.6 : 1 }}
+              disabled={adLoading}
+              onClick={watchAdForDouble}
             >
-              СМОТРЕТЬ → ПОЛУЧИТЬ +{result.coinsEarned}🪙
+              <Icon name="Play" size={14} />
+              {adLoading ? "ЗАГРУЗКА..." : `СМОТРЕТЬ → x2 НАГРАДА (+${result.coinsEarned})`}
             </button>
           )}
-          {!isWin && (
-            <button
-              className="w-full h-12 font-oswald text-sm tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
-              style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "#f5f5f5", border: "1px solid rgba(255,255,255,0.15)" }}
-              onClick={() => {
-                trackEvent("fix_mistake_click");
-                const hasRetry = shopInventory["retry_1"]?.quantity > 0 || shopInventory["retry_3"]?.quantity > 0;
-                if (hasRetry) {
-                  consumeItem("retry");
-                  startMatch();
-                } else if (coins >= 10) {
-                  buyItem("retry_1");
-                  startMatch();
-                } else {
-                  setShopToast("Не хватает монет");
-                  setTimeout(() => setShopToast(""), 2500);
-                }
-              }}
-            >
-              ИСПРАВИТЬ ОШИБКУ — 10 монет
-            </button>
+          {isWin && adDoubleUsed && (
+            <div className="w-full h-12 font-oswald text-sm tracking-[0.15em] uppercase flex items-center justify-center gap-2" style={{ color: "#f39c12" }}>
+              <Icon name="Check" size={14} />
+              НАГРАДА УДВОЕНА
+            </div>
+          )}
+          {!isWin && !adRevengeUsed && (
+            <div className="flex flex-col gap-1 w-full">
+              <button
+                className="w-full h-12 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+                style={{ backgroundColor: "rgba(243,156,18,0.15)", color: "#f39c12", border: "1px solid rgba(243,156,18,0.4)", opacity: adLoading ? 0.6 : 1 }}
+                disabled={adLoading}
+                onClick={watchAdForRevenge}
+              >
+                <Icon name="Play" size={14} />
+                {adLoading ? "ЗАГРУЗКА..." : "РЕВАНШ — СМОТРИ ВИДЕО"}
+              </button>
+              <span className="font-rubik text-[10px] text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
+                Вернём {Math.abs(result.coinsEarned)} монет{result.ratingChange < 0 ? ` и ${Math.abs(result.ratingChange)} рейтинга` : ""}{result.streakLost && result.streakLost >= 2 ? ` + серию ${result.streakLost}` : ""}
+              </span>
+            </div>
+          )}
+          {!isWin && adRevengeUsed && (
+            <div className="w-full h-12 font-oswald text-sm tracking-[0.15em] uppercase flex items-center justify-center gap-2" style={{ color: "#00e676" }}>
+              <Icon name="Check" size={14} />
+              +{Math.abs(result.coinsEarned)} МОНЕТ, +{Math.abs(result.ratingChange)} РЕЙТИНГ ВОЗВРАЩЕНЫ
+            </div>
           )}
           <button
             onClick={createDuelRoom}

@@ -406,4 +406,79 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return resp(200, {"player": updated, "coins_added": reward_coins})
 
+    # ── POST /ad-double — удвоить награду за победу (после просмотра рекламы) ──
+    if method == "POST" and (action == "ad-double" or "/ad-double" in path):
+        """Удвоение награды за победу после просмотра рекламы."""
+        if not player_id:
+            return resp(400, {"error": "player_id required"})
+
+        bonus_coins = body.get("bonus_coins", 20)
+        if not isinstance(bonus_coins, (int, float)) or bonus_coins < 1 or bonus_coins > 100:
+            bonus_coins = 20
+
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            f"SELECT * FROM {SCHEMA}.players WHERE id = %s FOR UPDATE",
+            (player_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return resp(404, {"error": "player not found"})
+
+        new_coins = row["coins"] + int(bonus_coins)
+        cur.execute(
+            f"UPDATE {SCHEMA}.players SET coins=%s WHERE id=%s RETURNING *",
+            (new_coins, player_id)
+        )
+        updated = dict(cur.fetchone())
+        conn.commit()
+        cur.close()
+        conn.close()
+        return resp(200, {"player": updated, "coins_added": int(bonus_coins)})
+
+    # ── POST /ad-revenge — отмена штрафа за проигрыш (после просмотра рекламы) ──
+    if method == "POST" and (action == "ad-revenge" or "/ad-revenge" in path):
+        """Реванш: возвращаем монеты и рейтинг, потерянные за проигрыш."""
+        if not player_id:
+            return resp(400, {"error": "player_id required"})
+
+        refund_coins = body.get("refund_coins", 10)
+        refund_rating = body.get("refund_rating", 15)
+        restore_streak = body.get("restore_streak", 0)
+
+        if not isinstance(refund_coins, (int, float)) or refund_coins < 0 or refund_coins > 50:
+            refund_coins = 10
+        if not isinstance(refund_rating, (int, float)) or refund_rating < 0 or refund_rating > 50:
+            refund_rating = 15
+        if not isinstance(restore_streak, (int, float)) or restore_streak < 0 or restore_streak > 50:
+            restore_streak = 0
+
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            f"SELECT * FROM {SCHEMA}.players WHERE id = %s FOR UPDATE",
+            (player_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return resp(404, {"error": "player not found"})
+
+        new_coins = row["coins"] + int(refund_coins)
+        new_rating = row["rating"] + int(refund_rating)
+        new_streak = max(row["streak"], int(restore_streak))
+        cur.execute(
+            f"UPDATE {SCHEMA}.players SET coins=%s, rating=%s, streak=%s WHERE id=%s RETURNING *",
+            (new_coins, new_rating, new_streak, player_id)
+        )
+        updated = dict(cur.fetchone())
+        conn.commit()
+        cur.close()
+        conn.close()
+        return resp(200, {"player": updated, "refunded_coins": int(refund_coins), "refunded_rating": int(refund_rating)})
+
     return resp(404, {"error": "not found (game-api)"})
