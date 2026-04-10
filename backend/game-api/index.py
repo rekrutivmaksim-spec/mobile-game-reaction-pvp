@@ -428,9 +428,13 @@ def handler(event: dict, context) -> dict:
             cur.close(); conn.close()
             return resp(404, {"error": "player not found"})
 
+        if row.get("last_result") != "win":
+            cur.close(); conn.close()
+            return resp(400, {"error": "no recent win"})
+
         new_coins = row["coins"] + int(bonus_coins)
         cur.execute(
-            f"UPDATE {SCHEMA}.players SET coins=%s WHERE id=%s RETURNING *",
+            f"UPDATE {SCHEMA}.players SET coins=%s, last_result='ad_doubled' WHERE id=%s RETURNING *",
             (new_coins, player_id)
         )
         updated = dict(cur.fetchone())
@@ -468,11 +472,15 @@ def handler(event: dict, context) -> dict:
             cur.close(); conn.close()
             return resp(404, {"error": "player not found"})
 
+        if row.get("last_result") not in ("lose", "false_start"):
+            cur.close(); conn.close()
+            return resp(400, {"error": "no recent loss"})
+
         new_coins = row["coins"] + int(refund_coins)
         new_rating = row["rating"] + int(refund_rating)
         new_streak = max(row["streak"], int(restore_streak))
         cur.execute(
-            f"UPDATE {SCHEMA}.players SET coins=%s, rating=%s, streak=%s WHERE id=%s RETURNING *",
+            f"UPDATE {SCHEMA}.players SET coins=%s, rating=%s, streak=%s, last_result='ad_revenged' WHERE id=%s RETURNING *",
             (new_coins, new_rating, new_streak, player_id)
         )
         updated = dict(cur.fetchone())
