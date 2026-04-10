@@ -365,6 +365,30 @@ export default function Index() {
     }
   }, []);
 
+  // ── Возврат после оплаты Freekassa ──
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const payment = params.get("payment");
+    if (payment === "success") {
+      window.history.replaceState({}, "", window.location.pathname);
+      setScreen("shop");
+      // Перезагружаем профиль чтобы показать актуальный баланс монет
+      const pid = localStorage.getItem("ne_slomaisa_player_id");
+      if (pid) {
+        fetch(`${API}/?action=profile&player_id=${pid}`)
+          .then(r => r.json())
+          .then(d => { if (d.player) setPlayer(d.player); });
+      }
+      setTimeout(() => setShopToast("Оплата прошла! Монеты скоро зачислятся"), 500);
+      setTimeout(() => setShopToast(""), 4000);
+    } else if (payment === "failed") {
+      window.history.replaceState({}, "", window.location.pathname);
+      setScreen("shop");
+      setTimeout(() => setShopToast("Оплата отменена"), 500);
+      setTimeout(() => setShopToast(""), 3000);
+    }
+  }, []);
+
   const clearAllTimers = useCallback(() => {
     tensionTimersRef.current.forEach(clearTimeout);
     tensionTimersRef.current = [];
@@ -2707,10 +2731,9 @@ export default function Index() {
                     trackEvent("shop_pack_click");
                     const pid = localStorage.getItem("ne_slomaisa_player_id");
                     if (!pid) return;
-                    const win = window.open("", "_blank");
                     fetch(`${PAY_API}/?action=pay&item_id=coins_300&player_id=${pid}`, { headers: { "X-Player-Id": pid } })
                       .then(r => r.json())
-                      .then(d => { if (d.url && win) win.location.href = d.url; });
+                      .then(d => { if (d.url) window.location.href = d.url; });
                   }}
                 >
                   49 ₽
@@ -2737,10 +2760,9 @@ export default function Index() {
                       const pid = localStorage.getItem("ne_slomaisa_player_id");
                       if (!pid) return;
                       const itemId = `coins_${pack.amount}`;
-                      const win = window.open("", "_blank");
                       fetch(`${PAY_API}/?action=pay&item_id=${itemId}&player_id=${pid}`, { headers: { "X-Player-Id": pid } })
                         .then(r => r.json())
-                        .then(d => { if (d.url && win) win.location.href = d.url; });
+                        .then(d => { if (d.url) window.location.href = d.url; });
                     }}
                   >
                     {pack.price} ₽
