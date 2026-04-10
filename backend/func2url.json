@@ -1,4 +1,5 @@
 {
+  "freekassa-webhook": "https://functions.poehali.dev/8ffbd5f3-5f2d-4c3d-a147-6902ce201a75",
   "matchmaking": "https://functions.poehali.dev/6051dd88-db93-4e00-8466-74fea305e9bb",
   "push-scheduler": "https://functions.poehali.dev/0ec5c321-2b94-4415-a36e-a08a61a57b6a",
   "shop-api": "https://functions.poehali.dev/ec65f2ad-bca4-448e-aadc-868e4837731e",

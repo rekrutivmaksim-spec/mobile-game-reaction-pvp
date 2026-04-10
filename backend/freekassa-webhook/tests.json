@@ -1,0 +1,19 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Bad sign rejected",
+      "method": "POST",
+      "path": "/",
+      "body": {"MERCHANT_ID": "123", "AMOUNT": "100", "SIGN": "badsign", "MERCHANT_ORDER_ID": "uuid_coins_100", "intid": "test1"},
+      "expectedStatus": 400,
+      "expectedBody": "SIGN_ERROR",
+      "bodyMatcher": "partial"
+    }
+  ]
+}
