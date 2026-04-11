@@ -1,11 +1,8 @@
 /**
- * Модуль рекламы — Yandex Games SDK Rewarded Video
+ * Модуль рекламы — Yandex Games SDK Rewarded Video + Interstitial
  *
  * Если SDK доступен (игра запущена в Yandex Games) — показывает настоящую рекламу.
  * Если SDK недоступен (свой домен) — fallback с таймером (имитация просмотра).
- *
- * Для подключения Yandex Games SDK добавьте в index.html:
- * <script src="https://yandex.ru/games/sdk/v2"></script>
  */
 
 interface YaGamesSDK {
@@ -14,6 +11,11 @@ interface YaGamesSDK {
       onOpen?: () => void;
       onRewarded?: () => void;
       onClose?: () => void;
+      onError?: (error: Error) => void;
+    }) => void;
+    showFullscreenAdv: (callbacks: {
+      onOpen?: () => void;
+      onClose?: (wasShown: boolean) => void;
       onError?: (error: Error) => void;
     }) => void;
   };
@@ -68,9 +70,25 @@ export async function showRewardedAd(): Promise<AdResult> {
     });
   }
 
-  // Fallback: имитация просмотра (5 сек ожидание)
   return new Promise<AdResult>((resolve) => {
     setTimeout(() => resolve("rewarded"), 5000);
+  });
+}
+
+export async function showInterstitialAd(): Promise<boolean> {
+  const sdk = await ensureSDK();
+
+  if (sdk) {
+    return new Promise<boolean>((resolve) => {
+      sdk.adv.showFullscreenAdv({
+        onClose: (wasShown) => { resolve(wasShown); },
+        onError: () => { resolve(false); },
+      });
+    });
+  }
+
+  return new Promise<boolean>((resolve) => {
+    setTimeout(() => resolve(true), 2000);
   });
 }
 

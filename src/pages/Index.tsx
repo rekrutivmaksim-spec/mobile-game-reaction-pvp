@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import { getLeague, getProgressToNext, getPressureMessage } from "@/lib/leagues";
 import { requestPushPermission, schedulePushAfterMatch } from "@/lib/push";
-import { showRewardedAd } from "@/lib/ads";
+import { showRewardedAd, showInterstitialAd } from "@/lib/ads";
 
 const API       = "https://functions.poehali.dev/7000f2b2-907e-4557-90a3-c4e459c83279";
 const DUEL_API  = "https://functions.poehali.dev/fd904cf2-ca8c-4cda-9ec3-e5fb219c5102";
@@ -267,6 +267,10 @@ export default function Index() {
 
   // Online counter
   const [onlineCount, setOnlineCount] = useState(0);
+
+  // Interstitial: счётчик завершённых матчей (показываем каждые 3)
+  const matchCountRef = useRef(0);
+  const [showingInterstitial, setShowingInterstitial] = useState(false);
 
   const greenTimeRef = useRef<number>(0);
   const gameActiveRef = useRef(false);
@@ -630,10 +634,19 @@ export default function Index() {
       setTimeout(() => setNearMissBlackout(false), 1200);
     }
 
+    matchCountRef.current++;
+
     const delay = nearMiss === "close" ? 2200 : nearMiss === "edge" ? 1500 : 350;
-    setTimeout(() => {
+    setTimeout(async () => {
       setNearMissBlackout(false);
       setScreenFlash("none");
+
+      if (matchCountRef.current >= 3 && matchCountRef.current % 3 === 0) {
+        setShowingInterstitial(true);
+        try { await showInterstitialAd(); } catch { /* noop */ }
+        setShowingInterstitial(false);
+      }
+
       setScreen("result");
       if (didLeagueUp) {
         trackEvent("league_up", { league: newLeague.id, rating: newRatingVal });
@@ -1619,7 +1632,7 @@ export default function Index() {
                   style={{ backgroundColor: "#00e676", color: "#0f0f0f", opacity: adLoading ? 0.6 : 1 }}
                 >
                   <Icon name="Play" size={18} />
-                  {adLoading ? "ЗАГРУЗКА..." : "СМОТРИ ВИДЕО — 100 МОНЕТ"}
+                  {adLoading ? "ЗАГРУЗКА..." : "ПОЛУЧИТЬ +100 МОНЕТ"}
                 </button>
                 <button
                   onClick={() => { setShopTab("coins"); setScreen("shop"); }}
@@ -2016,7 +2029,7 @@ export default function Index() {
               onClick={watchAdForDouble}
             >
               <Icon name="Play" size={14} />
-              {adLoading ? "ЗАГРУЗКА..." : `СМОТРЕТЬ → x2 НАГРАДА (+${result.coinsEarned})`}
+              {adLoading ? "ЗАГРУЗКА..." : `УДВОИТЬ НАГРАДУ (+${result.coinsEarned} 🪙)`}
             </button>
           )}
           {isWin && adDoubleUsed && (
@@ -2029,15 +2042,21 @@ export default function Index() {
             <div className="flex flex-col gap-1 w-full">
               <button
                 className="w-full h-12 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
-                style={{ backgroundColor: "rgba(243,156,18,0.15)", color: "#f39c12", border: "1px solid rgba(243,156,18,0.4)", opacity: adLoading ? 0.6 : 1 }}
+                style={{
+                  backgroundColor: result.streakLost && result.streakLost >= 3 ? "rgba(243,156,18,0.2)" : "rgba(243,156,18,0.15)",
+                  color: "#f39c12",
+                  border: `1px solid rgba(243,156,18,${result.streakLost && result.streakLost >= 3 ? "0.6" : "0.4"})`,
+                  opacity: adLoading ? 0.6 : 1,
+                  animation: result.streakLost && result.streakLost >= 5 ? "pulse 2s ease-in-out infinite" : "none",
+                }}
                 disabled={adLoading}
                 onClick={watchAdForRevenge}
               >
                 <Icon name="Play" size={14} />
-                {adLoading ? "ЗАГРУЗКА..." : "РЕВАНШ — СМОТРИ ВИДЕО"}
+                {adLoading ? "ЗАГРУЗКА..." : result.streakLost && result.streakLost >= 3 ? `СОХРАНИТЬ СЕРИЮ 🔥${result.streakLost}` : "ИСПРАВИТЬ ОШИБКУ"}
               </button>
               <span className="font-rubik text-[10px] text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
-                Вернём {Math.abs(result.coinsEarned)} монет{result.ratingChange < 0 ? ` и ${Math.abs(result.ratingChange)} рейтинга` : ""}{result.streakLost && result.streakLost >= 2 ? ` + серию ${result.streakLost}` : ""}
+                Вернём {Math.abs(result.coinsEarned)} монет{result.ratingChange < 0 ? `, ${Math.abs(result.ratingChange)} рейтинга` : ""}{result.streakLost && result.streakLost >= 2 ? ` и серию ${result.streakLost}` : ""}
               </span>
             </div>
           )}
@@ -3054,6 +3073,16 @@ export default function Index() {
                 Позже
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Interstitial ad overlay */}
+      {showingInterstitial && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.85)" }}>
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 border-2 rounded-full animate-spin" style={{ borderColor: "rgba(255,255,255,0.1)", borderTopColor: "#f39c12" }} />
+            <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Реклама</span>
           </div>
         </div>
       )}
