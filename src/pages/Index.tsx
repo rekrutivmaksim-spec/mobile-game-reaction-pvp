@@ -148,14 +148,21 @@ function playTapClick() {
 }
 
 // ─────────────── BOT LOGIC ───────────────
-// isNewbie: true для первых 3 матчей — бот заметно медленнее, шанс выиграть выше
-function getBotReactionTime(isNewbie = false): number {
+// Адаптивное время реакции бота по рейтингу и опыту игрока
+function getBotReactionTime(isNewbie = false, rating = 1000): number {
   if (isNewbie) {
-    // Бот 280–420 мс, никогда не делает фальстарт
-    return 280 + Math.random() * 140;
+    // Новичок: бот 300–480 мс, без фальстарта — даём шанс победить
+    return 300 + Math.random() * 180;
   }
-  const base = 200 + Math.random() * 150;
-  return Math.random() < 0.05 ? -1 : base;
+  // Чем выше рейтинг — тем быстрее и опаснее бот
+  // rating 1000 → base 220-340мс | rating 1500 → base 190-290мс | rating 2000+ → base 160-240мс
+  const skill = Math.min((rating - 1000) / 1000, 1); // 0..1
+  const minTime = 220 - skill * 60;  // 220 → 160
+  const spread  = 120 - skill * 40;  // 120 → 80
+  const base = minTime + Math.random() * spread;
+  // Шанс фальстарта у бота: 3% + чуть больше у сильных (до 7%)
+  const falseStartChance = 0.03 + skill * 0.04;
+  return Math.random() < falseStartChance ? -1 : Math.round(base);
 }
 
 function getSignalDelay(): number {
