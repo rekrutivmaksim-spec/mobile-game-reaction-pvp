@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import { getLeague, getProgressToNext, getPressureMessage } from "@/lib/leagues";
 import { requestPushPermission, schedulePushAfterMatch } from "@/lib/push";
-import { showRewardedAd, showInterstitialAd } from "@/lib/ads";
+import { showRewardedAd, showInterstitialAd, showAppOpenAd } from "@/lib/ads";
 
 const API       = "https://functions.poehali.dev/7000f2b2-907e-4557-90a3-c4e459c83279";
 const DUEL_API  = "https://functions.poehali.dev/fd904cf2-ca8c-4cda-9ec3-e5fb219c5102";
@@ -370,6 +370,12 @@ export default function Index() {
   const autoStartRef = useRef(false);
    
   const startMatchRef = useRef<(() => void) | null>(null);
+
+  // ── APP OPEN AD ──
+  useEffect(() => {
+    const timer = setTimeout(() => { showAppOpenAd(); }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // ── DEEP LINK из push: ?autostart=1 ──
   useEffect(() => {
@@ -819,7 +825,7 @@ export default function Index() {
       setEnduranceCount(0);
       enduranceActiveRef.current = false;
       enduranceCountRef.current = 0;
-      setShopToast("Нужно минимум 20 монет — смотри видео или купи");
+      setShopToast("Нужно минимум 20 монет — смотри видео или купи монеты");
       setTimeout(() => setShopToast(""), 3000);
       setScreen("home");
       return;
@@ -1642,11 +1648,11 @@ export default function Index() {
             >
               {streak >= 3 ? "рискнёшь продолжить?" : "ошибка = поражение"}
             </span>
-            {coins < 20 ? (
+            {coins < 100 ? (
               <div className="w-full flex flex-col gap-2">
                 <div className="w-full border px-4 py-3 flex flex-col items-center gap-1" style={{ borderColor: "rgba(192,57,43,0.4)", backgroundColor: "rgba(192,57,43,0.06)" }}>
-                  <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#c0392b" }}>Мало монет</span>
-                  <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>Нужно минимум 20 монет для игры · у тебя {coins}</span>
+                  <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#c0392b" }}>Пополни монеты</span>
+                  <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>Смотри видео и получай монеты · у тебя {coins}</span>
                 </div>
                 <button
                   onClick={watchAdForCoins}
@@ -2571,11 +2577,11 @@ export default function Index() {
         </div>
 
         <div className="flex flex-col gap-3 w-full">
-          {coins < 20 ? (
+          {coins < 100 ? (
             <div className="w-full flex flex-col gap-2">
               <div className="w-full border px-4 py-3 flex flex-col items-center gap-1" style={{ borderColor: "rgba(192,57,43,0.4)", backgroundColor: "rgba(192,57,43,0.06)" }}>
-                <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#c0392b" }}>Мало монет</span>
-                <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>Нужно минимум 20 монет · у тебя {coins}</span>
+                <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#c0392b" }}>Пополни монеты</span>
+                <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>Смотри видео и получай монеты · у тебя {coins}</span>
               </div>
               <button onClick={watchAdForCoins} disabled={adLoading}
                 className="w-full h-14 font-oswald text-base font-bold tracking-[0.2em] uppercase active:scale-95 transition-all flex items-center justify-center gap-2"

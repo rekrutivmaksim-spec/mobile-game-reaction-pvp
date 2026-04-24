@@ -2,8 +2,9 @@
  * Модуль рекламы — Yandex Mobile Ads SDK (YMA)
  *
  * Блоки:
- *   Rewarded:      R-M-19098620-1
- *   Interstitial:  R-M-19098620-2
+ *   Rewarded:      R-M-19148656-1
+ *   Interstitial:  R-M-19148656-2
+ *   App Open:      R-M-19148656-3
  *
  * SDK подключается через index.html:
  * <script src="https://yandex.ru/ads/system/context.js" async></script>
@@ -11,8 +12,9 @@
  * Если SDK недоступен (локальная разработка) — fallback с таймером.
  */
 
-const REWARDED_BLOCK_ID     = "R-M-19098620-1";
-const INTERSTITIAL_BLOCK_ID = "R-M-19098620-2";
+const REWARDED_BLOCK_ID     = "R-M-19148656-1";
+const INTERSTITIAL_BLOCK_ID = "R-M-19148656-2";
+const APP_OPEN_BLOCK_ID     = "R-M-19148656-3";
 
 interface YMARewardedAd {
   show: () => void;
@@ -32,7 +34,6 @@ interface YMAAdManager {
 declare global {
   interface Window {
     yaads?: YMAAdManager;
-    // Яндекс Игры SDK (запасной вариант)
     YaGames?: { init: () => Promise<YaGamesSdk> };
     ysdk?: YaGamesSdk;
   }
@@ -71,7 +72,6 @@ async function ensureYaGamesSDK(): Promise<YaGamesSdk | null> {
 export type AdResult = "rewarded" | "closed" | "error";
 
 export async function showRewardedAd(): Promise<AdResult> {
-  // 1. Попытка через YMA SDK
   if (window.yaads) {
     return new Promise<AdResult>((resolve) => {
       try {
@@ -88,7 +88,6 @@ export async function showRewardedAd(): Promise<AdResult> {
     });
   }
 
-  // 2. Попытка через Яндекс Игры SDK
   const sdk = await ensureYaGamesSDK();
   if (sdk) {
     return new Promise<AdResult>((resolve) => {
@@ -101,14 +100,12 @@ export async function showRewardedAd(): Promise<AdResult> {
     });
   }
 
-  // 3. Fallback для локальной разработки (5 сек имитация)
   return new Promise<AdResult>((resolve) => {
     setTimeout(() => resolve("rewarded"), 5000);
   });
 }
 
 export async function showInterstitialAd(): Promise<boolean> {
-  // 1. Попытка через YMA SDK
   if (window.yaads) {
     return new Promise<boolean>((resolve) => {
       try {
@@ -123,7 +120,6 @@ export async function showInterstitialAd(): Promise<boolean> {
     });
   }
 
-  // 2. Попытка через Яндекс Игры SDK
   const sdk = await ensureYaGamesSDK();
   if (sdk) {
     return new Promise<boolean>((resolve) => {
@@ -134,9 +130,38 @@ export async function showInterstitialAd(): Promise<boolean> {
     });
   }
 
-  // 3. Fallback для локальной разработки (2 сек имитация)
   return new Promise<boolean>((resolve) => {
     setTimeout(() => resolve(true), 2000);
+  });
+}
+
+export async function showAppOpenAd(): Promise<boolean> {
+  if (window.yaads) {
+    return new Promise<boolean>((resolve) => {
+      try {
+        const ad = window.yaads!.createInterstitialAd(APP_OPEN_BLOCK_ID);
+        ad.addEventListener("close",     () => resolve(true));
+        ad.addEventListener("error",     () => resolve(false));
+        ad.addEventListener("dismissed", () => resolve(true));
+        ad.show();
+      } catch {
+        resolve(false);
+      }
+    });
+  }
+
+  const sdk = await ensureYaGamesSDK();
+  if (sdk) {
+    return new Promise<boolean>((resolve) => {
+      sdk.adv.showFullscreenAdv({
+        onClose: (wasShown) => resolve(wasShown),
+        onError: ()         => resolve(false),
+      });
+    });
+  }
+
+  return new Promise<boolean>((resolve) => {
+    setTimeout(() => resolve(true), 1500);
   });
 }
 
