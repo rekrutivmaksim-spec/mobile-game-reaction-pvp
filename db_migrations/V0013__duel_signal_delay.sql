@@ -1,0 +1,3 @@
+ALTER TABLE t_p67729910_mobile_game_reaction.rooms
+  ADD COLUMN IF NOT EXISTS signal_delay INTEGER NULL,
+  ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ NULL;
