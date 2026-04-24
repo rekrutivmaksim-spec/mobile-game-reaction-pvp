@@ -372,19 +372,7 @@ export default function Index() {
    
   const startMatchRef = useRef<(() => void) | null>(null);
 
-  // ── APP OPEN AD (не чаще раза в 4 часа) ──
-  useEffect(() => {
-    const COOLDOWN_MS = 4 * 60 * 60 * 1000;
-    const lastShown = parseInt(localStorage.getItem("app_open_ad_ts") ?? "0", 10);
-    const now = Date.now();
-    if (now - lastShown < COOLDOWN_MS) return;
-    const timer = setTimeout(() => {
-      showAppOpenAd().then(() => {
-        localStorage.setItem("app_open_ad_ts", String(Date.now()));
-      });
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, []);
+  // App Open AD отключён — раздражает игроков при быстром старте
 
   // ── DEEP LINK из push: ?autostart=1 ──
   useEffect(() => {
