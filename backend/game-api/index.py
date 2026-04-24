@@ -165,6 +165,10 @@ def handler(event: dict, context) -> dict:
         new_max_streak = max(player["max_streak"], new_streak)
         streak_bonus = 2 if new_streak >= 5 else 1
 
+        # Стоимость игры (списывается с каждого матча)
+        MATCH_COST = 20
+        coins_after_cost = max(0, player["coins"] - MATCH_COST)
+
         # x2 буст
         x2_active = boosts.get("x2_reward", 0) > 0
         base_coins = (20 if is_win else -10) * streak_bonus
@@ -179,7 +183,7 @@ def handler(event: dict, context) -> dict:
                 (player_id,)
             )
 
-        new_coins = max(0, player["coins"] + coins_earned)
+        new_coins = max(0, coins_after_cost + coins_earned)
 
         new_best = player["best_reaction"]
         new_total = player["total_reaction"]
@@ -229,7 +233,7 @@ def handler(event: dict, context) -> dict:
             "total_players": total,
             "percent_better": percent_better,
             "rating_delta": rating_delta,
-            "coins_earned": coins_earned,
+            "coins_earned": coins_earned - MATCH_COST,
             "avg_reaction": avg_reaction,
             "prev_league": prev_league["id"],
             "new_league": new_league["id"],

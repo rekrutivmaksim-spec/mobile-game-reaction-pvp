@@ -276,8 +276,9 @@ export default function Index() {
   // Online counter
   const [onlineCount, setOnlineCount] = useState(0);
 
-  // Interstitial: счётчик завершённых матчей (показываем каждые 3)
+  // Interstitial: счётчик матчей + защита по времени (не чаще раза в 5 минут)
   const matchCountRef = useRef(0);
+  const lastInterstitialRef = useRef(0);
   const [showingInterstitial, setShowingInterstitial] = useState(false);
 
   const greenTimeRef = useRef<number>(0);
@@ -371,9 +372,17 @@ export default function Index() {
    
   const startMatchRef = useRef<(() => void) | null>(null);
 
-  // ── APP OPEN AD ──
+  // ── APP OPEN AD (не чаще раза в 4 часа) ──
   useEffect(() => {
-    const timer = setTimeout(() => { showAppOpenAd(); }, 2000);
+    const COOLDOWN_MS = 4 * 60 * 60 * 1000;
+    const lastShown = parseInt(localStorage.getItem("app_open_ad_ts") ?? "0", 10);
+    const now = Date.now();
+    if (now - lastShown < COOLDOWN_MS) return;
+    const timer = setTimeout(() => {
+      showAppOpenAd().then(() => {
+        localStorage.setItem("app_open_ad_ts", String(Date.now()));
+      });
+    }, 2000);
     return () => clearTimeout(timer);
   }, []);
 
@@ -657,7 +666,13 @@ export default function Index() {
       setNearMissBlackout(false);
       setScreenFlash("none");
 
-      if (matchCountRef.current >= 3 && matchCountRef.current % 3 === 0) {
+      const INTERSTITIAL_COOLDOWN = 5 * 60 * 1000;
+      const nowTs = Date.now();
+      const canShowInterstitial = matchCountRef.current >= 3
+        && matchCountRef.current % 3 === 0
+        && (nowTs - lastInterstitialRef.current) >= INTERSTITIAL_COOLDOWN;
+      if (canShowInterstitial) {
+        lastInterstitialRef.current = nowTs;
         if (isMountedRef.current) setShowingInterstitial(true);
         try { await showInterstitialAd(); } catch { /* noop */ }
         if (isMountedRef.current) setShowingInterstitial(false);
@@ -1648,7 +1663,7 @@ export default function Index() {
             >
               {streak >= 3 ? "рискнёшь продолжить?" : "ошибка = поражение"}
             </span>
-            {coins < 100 ? (
+            {coins < 50 ? (
               <div className="w-full flex flex-col gap-2">
                 <div className="w-full border px-4 py-3 flex flex-col items-center gap-1" style={{ borderColor: "rgba(192,57,43,0.4)", backgroundColor: "rgba(192,57,43,0.06)" }}>
                   <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#c0392b" }}>Пополни монеты</span>
@@ -2577,7 +2592,7 @@ export default function Index() {
         </div>
 
         <div className="flex flex-col gap-3 w-full">
-          {coins < 100 ? (
+          {coins < 50 ? (
             <div className="w-full flex flex-col gap-2">
               <div className="w-full border px-4 py-3 flex flex-col items-center gap-1" style={{ borderColor: "rgba(192,57,43,0.4)", backgroundColor: "rgba(192,57,43,0.06)" }}>
                 <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#c0392b" }}>Пополни монеты</span>
