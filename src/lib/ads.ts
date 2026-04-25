@@ -76,7 +76,9 @@ export async function showInterstitialAd(): Promise<boolean> {
 }
 
 export async function showAppOpenAd(): Promise<boolean> {
-  // App Open использует тот же interstitial-поток
+  const key = "app_open_ad_shown";
+  if (localStorage.getItem(key)) return false;
+  localStorage.setItem(key, "1");
   return showInterstitialAd();
 }
 
