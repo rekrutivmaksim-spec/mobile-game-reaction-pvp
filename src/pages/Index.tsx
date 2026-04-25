@@ -3213,7 +3213,7 @@ export default function Index() {
         <DailyBonus
           apiUrl={API}
           playerId={playerId}
-          onClaim={(p) => { setPlayer(p as Player); setShowDailyBonus(false); }}
+          onClaim={(p, _reward) => { setPlayer(p as Player); setShowDailyBonus(false); }}
           onClose={() => setShowDailyBonus(false)}
         />
       )}
