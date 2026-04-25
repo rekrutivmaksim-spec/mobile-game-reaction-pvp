@@ -2144,7 +2144,7 @@ export default function Index() {
             <Icon name="Swords" size={14} />
             ВЫЗВАТЬ ДРУГА
           </button>
-          {isWin && (
+          {isWin && result && (
             <button
               onClick={() => {
                 const time = result.playerTime;
@@ -3213,7 +3213,7 @@ export default function Index() {
         <DailyBonus
           apiUrl={API}
           playerId={playerId}
-          onClaim={(p, _reward) => { setPlayer(p as Player); setShowDailyBonus(false); }}
+          onClaim={(p, _reward) => { setPlayer(p as unknown as Player); setShowDailyBonus(false); }}
           onClose={() => setShowDailyBonus(false)}
         />
       )}
@@ -3221,7 +3221,7 @@ export default function Index() {
         <AchievementsModal
           apiUrl={API}
           playerId={playerId}
-          onPlayerUpdate={(p) => setPlayer(p as Player)}
+          onPlayerUpdate={(p) => setPlayer(p as unknown as Player)}
           onClose={() => setShowAchievements(false)}
         />
       )}

@@ -14,7 +14,7 @@ interface Achievement {
 interface AchievementsModalProps {
   apiUrl: string;
   playerId: string;
-  onPlayerUpdate: (player: unknown) => void;
+  onPlayerUpdate: (player: Record<string, unknown>) => void;
   onClose: () => void;
 }
 

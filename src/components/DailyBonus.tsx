@@ -5,7 +5,7 @@ import { fireAchievementConfetti } from "@/lib/confetti";
 interface DailyBonusProps {
   apiUrl: string;
   playerId: string;
-  onClaim: (player: unknown, reward: number) => void;
+  onClaim: (player: Record<string, unknown>, reward: number) => void;
   onClose: () => void;
 }
 
