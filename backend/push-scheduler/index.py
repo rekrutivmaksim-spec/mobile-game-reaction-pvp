@@ -233,8 +233,22 @@ def build_push_for_player(player: dict):
                 {"action": "start_game", "trigger": "league_up"}
             )
 
-    # 4. Не заходил 24-48ч
+    # 4. Ежедневный бонус готов (не заходил > 20ч, бонус не забран сегодня)
     hours_away = (now - last_played).total_seconds() / 3600
+    last_daily = player.get("last_daily_claim")
+    daily_ready = not last_daily or last_daily < now.date()
+    if daily_ready and 20 <= hours_away <= 30:
+        daily_streak = player.get("daily_streak") or 0
+        day_num = (daily_streak % 7) + 1
+        rewards = [30, 50, 80, 120, 180, 250, 500]
+        reward = rewards[min(day_num - 1, 6)]
+        return (
+            "Ежедневный бонус готов 🎁",
+            f"День {day_num}: заходи и забирай +{reward} монет.",
+            {"action": "open_daily", "trigger": "daily_bonus"}
+        )
+
+    # 5. Не заходил 24-48ч
     if 24 <= hours_away <= 48:
         return (
             "Сможешь выдержать сегодня?",

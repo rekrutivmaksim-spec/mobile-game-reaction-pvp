@@ -3,6 +3,9 @@ import Icon from "@/components/ui/icon";
 import { getLeague, getProgressToNext, getPressureMessage } from "@/lib/leagues";
 import { requestPushPermission, schedulePushAfterMatch } from "@/lib/push";
 import { showRewardedAd, showInterstitialAd, showAppOpenAd } from "@/lib/ads";
+import DailyBonus from "@/components/DailyBonus";
+import AchievementsModal from "@/components/AchievementsModal";
+import { fireStreakConfetti, fireWinConfetti } from "@/lib/confetti";
 
 const API       = "https://functions.poehali.dev/7000f2b2-907e-4557-90a3-c4e459c83279";
 const DUEL_API  = "https://functions.poehali.dev/fd904cf2-ca8c-4cda-9ec3-e5fb219c5102";
@@ -276,6 +279,10 @@ export default function Index() {
   // Online counter
   const [onlineCount, setOnlineCount] = useState(0);
 
+  const [showDailyBonus, setShowDailyBonus] = useState(false);
+  const [showAchievements, setShowAchievements] = useState(false);
+  const [dailyBonusChecked, setDailyBonusChecked] = useState(false);
+
   // Interstitial: счётчик матчей + защита по времени (не чаще раза в 5 минут)
   const matchCountRef = useRef(0);
   const lastInterstitialRef = useRef(0);
@@ -335,6 +342,13 @@ export default function Index() {
               rank: d.rank,
               total_players: d.total_players,
             });
+          }
+          if (!dailyBonusChecked) {
+            setDailyBonusChecked(true);
+            fetch(`${API}/?action=daily-status&player_id=${stored}`)
+              .then(r => r.json())
+              .then(db => { if (db.available) setTimeout(() => setShowDailyBonus(true), 1500); })
+              .catch(() => {});
           }
           if (autoStartRef.current) {
             autoStartRef.current = false;
@@ -667,6 +681,7 @@ export default function Index() {
       }
 
       if (!isMountedRef.current) return;
+      if (isWin) fireWinConfetti();
       setScreen("result");
       if (didLeagueUp) {
         trackEvent("league_up", { league: newLeague.id, rating: newRatingVal });
@@ -695,6 +710,7 @@ export default function Index() {
         setTimeout(() => {
           setStreakMilestone(newStreak);
           if (navigator.vibrate) navigator.vibrate([50, 30, 100]);
+          fireStreakConfetti(newStreak);
           setTimeout(() => setStreakMilestone(null), 3500);
         }, 500);
       }
@@ -1573,6 +1589,16 @@ export default function Index() {
             {onlineCount} игроков онлайн
           </span>
         </div>
+        {player && ((player as {today_matches?: number}).today_matches ?? 0) > 0 && (
+          <div className="flex items-center gap-3" style={{ color: "rgba(255,255,255,0.25)" }}>
+            <span className="font-rubik" style={{ fontSize: "clamp(9px, 2.5vw, 11px)" }}>
+              Сегодня: {(player as {today_matches?: number}).today_matches ?? 0} матчей
+              {(player as {today_best_reaction?: number}).today_best_reaction
+                ? ` · лучший ${(player as {today_best_reaction?: number}).today_best_reaction} мс`
+                : ""}
+            </span>
+          </div>
+        )}
 
         {/* Hero */}
         <div className="flex flex-col items-center gap-5 w-full">
@@ -1707,6 +1733,7 @@ export default function Index() {
             { icon: "ShoppingBag", label: "Магазин", action: () => { setScreen("shop"); loadShop(); } },
             { icon: "CalendarCheck", label: "Задания", action: () => { setScreen("challenges"); loadChallenges(); } },
             { icon: "User", label: "Профиль", action: () => { setScreen("profile"); loadProfile(); } },
+            { icon: "Medal", label: "Ачивки", action: () => setShowAchievements(true) },
             { icon: "Info", label: "Инфо", action: () => { setScreen("legal"); } },
           ].map(({ icon, label, action }, idx) => {
             const hasBadge = idx === 3 && challenges.some(c => c.completed && !claimedIds.has(c.id));
@@ -1830,6 +1857,17 @@ export default function Index() {
               <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: theme?.accent ?? "#c0392b", boxShadow: `0 0 16px ${theme?.accent ?? "rgba(192,57,43,0.9)"}`, animation: "pulse 1s ease-in-out infinite" }} />
               <span className="font-oswald font-bold uppercase leading-none tracking-tight transition-all duration-300" style={{ fontSize: waitText === "…" ? "clamp(3rem, 15vw, 5rem)" : "clamp(4rem, 22vw, 7rem)", color: waitText === "НЕ ЖМИ" ? (theme?.accent ?? "#c0392b") : getWaitTextColor(), opacity: waitText === "…" ? 0.3 : 1 }}>{waitText}</span>
               <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.18)" }}>{waitText === "НЕ ЖМИ" ? "Держись…" : "Не нажми раньше…"}</span>
+              <div className="flex gap-2 mt-1">
+                {[0, 1, 2].map(i => (
+                  <div key={i} className="w-1.5 h-1.5 rounded-full" style={{
+                    backgroundColor: theme?.accent ?? "#c0392b",
+                    opacity: waitText === "НЕ ЖМИ" ? 0.8 : 0.2,
+                    transform: waitText === "НЕ ЖМИ" ? "scale(1.3)" : "scale(1)",
+                    transition: "all 0.3s ease",
+                    animation: waitText === "НЕ ЖМИ" ? `pulse 0.8s ease-in-out ${i * 0.15}s infinite` : "none",
+                  }} />
+                ))}
+              </div>
             </div>
           ) : (
             <div className="flex flex-col items-center animate-number-pop">
@@ -2106,6 +2144,24 @@ export default function Index() {
             <Icon name="Swords" size={14} />
             ВЫЗВАТЬ ДРУГА
           </button>
+          {isWin && (
+            <button
+              onClick={() => {
+                const time = result.playerTime;
+                const txt = `⚡ Моя реакция: ${time} мс — выдержал нервы в НЕ СЛОМАЙСЯ!\nhttps://play.google.com/store/apps/details?id=ru.neslomaisa.game`;
+                if (navigator.share) {
+                  navigator.share({ title: "НЕ СЛОМАЙСЯ", text: txt });
+                } else {
+                  navigator.clipboard.writeText(txt);
+                }
+              }}
+              className="w-full h-11 font-oswald text-sm tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+              style={{ backgroundColor: "transparent", color: "rgba(255,255,255,0.4)", border: "1px solid rgba(255,255,255,0.1)" }}
+            >
+              <Icon name="Share2" size={14} />
+              ПОДЕЛИТЬСЯ ПОБЕДОЙ
+            </button>
+          )}
           <span onClick={() => setScreen("home")} className="font-rubik text-xs text-center pt-1 active:opacity-60" style={{ color: "rgba(255,255,255,0.15)" }}>
             на главную
           </span>
@@ -2221,6 +2277,13 @@ export default function Index() {
             <Icon name="ArrowLeft" size={20} style={{ color: "rgba(255,255,255,0.5)" }} />
           </button>
           <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white flex-1">Профиль</h2>
+          <button
+            onClick={() => setShowAchievements(true)}
+            className="active:opacity-60 transition-opacity flex items-center gap-1"
+            style={{ color: "#f39c12" }}
+          >
+            <Icon name="Medal" size={20} />
+          </button>
         </div>
 
         <div className="flex-1 px-6 flex flex-col gap-3 overflow-y-auto pb-8">
@@ -3144,6 +3207,23 @@ export default function Index() {
             </div>
           </div>
         </div>
+      )}
+
+      {showDailyBonus && playerId && (
+        <DailyBonus
+          apiUrl={API}
+          playerId={playerId}
+          onClaim={(p) => { setPlayer(p as Player); setShowDailyBonus(false); }}
+          onClose={() => setShowDailyBonus(false)}
+        />
+      )}
+      {showAchievements && playerId && (
+        <AchievementsModal
+          apiUrl={API}
+          playerId={playerId}
+          onPlayerUpdate={(p) => setPlayer(p as Player)}
+          onClose={() => setShowAchievements(false)}
+        />
       )}
 
       {/* Onboarding — первый запуск */}
