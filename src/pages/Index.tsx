@@ -1546,7 +1546,7 @@ export default function Index() {
     const btnLabel = hasPlayed ? "ЕЩЁ РАЗ" : "ПРОВЕРЬ СЕБЯ";
 
     return (
-      <div className="relative flex flex-col items-center justify-between h-dvh w-full px-6 py-[clamp(1.5rem,4vh,3rem)] overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
+      <div className="relative flex flex-col items-center justify-between h-dvh w-full px-6 pt-[clamp(1.5rem,4vh,3rem)] pb-[clamp(1.5rem,4vh,3rem)] overflow-visible" style={{ backgroundColor: "#0f0f0f" }}>
         {/* Угловые декоры */}
         {["top-4 left-4 border-l-2 border-t-2", "top-4 right-4 border-r-2 border-t-2", "bottom-4 left-4 border-l-2 border-b-2", "bottom-4 right-4 border-r-2 border-b-2"].map((cls, i) => (
           <div key={i} className={`absolute w-6 h-6 ${cls}`} style={{ borderColor: "rgba(192,57,43,0.35)" }} />
