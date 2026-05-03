@@ -15,7 +15,7 @@ const PAY_API   = "https://functions.poehali.dev/8ffbd5f3-5f2d-4c3d-a147-6902ce2
 const MM_API    = "https://functions.poehali.dev/6051dd88-db93-4e00-8466-74fea305e9bb";
 
 // ─────────────── TYPES ───────────────
-type Screen = "home" | "searching" | "game" | "result" | "leaderboard" | "profile" | "duel-lobby" | "duel-wait" | "challenges" | "shop" | "endurance" | "legal";
+type Screen = "home" | "searching" | "game" | "result" | "leaderboard" | "profile" | "duel-lobby" | "duel-wait" | "challenges" | "shop" | "endurance" | "legal" | "referral";
 type GamePhase = "wait" | "tension" | "action" | "done";
 type ResultType = "win" | "lose" | "false_start";
 
@@ -65,6 +65,8 @@ interface Player {
   max_streak: number;
   best_reaction: number | null;
   coins: number;
+  no_ads?: boolean;
+  referral_code?: string;
 }
 
 interface MatchResult {
@@ -246,6 +248,59 @@ export default function Index() {
   const [shopLoading, setShopLoading] = useState(false);
   const [shopToast, setShopToast] = useState("");
   const [contextOffer, setContextOffer] = useState<{ itemId: string; message: string } | null>(null);
+  const [referralData, setReferralData] = useState<{
+    referral_code: string;
+    referrals_count: number;
+    referrals_rewarded: number;
+    reward_per_friend: number;
+    bonus_for_friend: number;
+    friends: Array<{ id: string; nickname: string; wins: number; rewarded_eligible: boolean }>;
+  } | null>(null);
+  const [referralToast, setReferralToast] = useState("");
+
+  const loadReferralData = () => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    fetch(`${API}/?action=referral-info&player_id=${pid}`, { headers: { "X-Player-Id": pid } })
+      .then(r => r.json())
+      .then(d => { if (d.referral_code) setReferralData(d); })
+      .catch(() => {});
+  };
+
+  const claimReferralReward = () => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    fetch(`${API}/?action=claim-referral`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+      body: JSON.stringify({}),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.coins_added > 0) {
+          setReferralToast(`+${d.coins_added} монет`);
+          if (d.player) setPlayer(d.player);
+          loadReferralData();
+          setTimeout(() => setReferralToast(""), 2500);
+          trackEvent("referral_claim", { coins: d.coins_added, friends: d.new_rewards });
+        }
+      })
+      .catch(() => {});
+  };
+
+  const shareReferral = (code: string) => {
+    const link = `${window.location.origin}/?ref=${code}`;
+    const text = `Зови друга в "Не сломайся" — игра на реакцию. Получишь 100 монет за каждого. Промокод: ${code}\n${link}`;
+    if (navigator.share) {
+      navigator.share({ title: "Не сломайся", text, url: link }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => {
+        setReferralToast("Ссылка скопирована");
+        setTimeout(() => setReferralToast(""), 2000);
+      });
+    }
+    trackEvent("referral_share");
+  };
 
   // Onboarding (первый запуск)
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -363,10 +418,13 @@ export default function Index() {
         .catch(() => {});
     } else {
       const nick = randomNick();
+      const urlParams = new URLSearchParams(window.location.search);
+      const refCode = (urlParams.get("ref") || localStorage.getItem("ne_slomaisa_ref") || "").toUpperCase().slice(0, 6);
+      if (refCode) localStorage.setItem("ne_slomaisa_ref", refCode);
       fetch(`${API}/?action=init-player`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nickname: nick }),
+        body: JSON.stringify({ nickname: nick, ref_code: refCode || undefined }),
       })
         .then(r => r.json())
         .then(d => {
@@ -376,6 +434,10 @@ export default function Index() {
             setPlayer(d.player);
             setShowOnboarding(true);
             setOnboardStep(0);
+            if (refCode) {
+              trackEvent("referral_signup", { ref_code: refCode });
+              localStorage.removeItem("ne_slomaisa_ref");
+            }
           }
         })
         .catch(() => {});
@@ -670,7 +732,8 @@ export default function Index() {
 
       const INTERSTITIAL_COOLDOWN = 5 * 60 * 1000;
       const nowTs = Date.now();
-      const canShowInterstitial = matchCountRef.current >= 3
+      const canShowInterstitial = !player?.no_ads
+        && matchCountRef.current >= 3
         && matchCountRef.current % 3 === 0
         && (nowTs - lastInterstitialRef.current) >= INTERSTITIAL_COOLDOWN;
       if (canShowInterstitial) {
@@ -1734,6 +1797,7 @@ export default function Index() {
             { icon: "CalendarCheck", label: "Задания", action: () => { setScreen("challenges"); loadChallenges(); } },
             { icon: "User", label: "Профиль", action: () => { setScreen("profile"); loadProfile(); } },
             { icon: "Medal", label: "Ачивки", action: () => setShowAchievements(true) },
+            { icon: "UserPlus", label: "Друзья", action: () => { setScreen("referral"); loadReferralData(); trackEvent("referral_open"); } },
             { icon: "Info", label: "Инфо", action: () => { setScreen("legal"); } },
           ].map(({ icon, label, action }, idx) => {
             const hasBadge = idx === 3 && challenges.some(c => c.completed && !claimedIds.has(c.id));
@@ -2855,6 +2919,41 @@ export default function Index() {
         <div className="flex-1 overflow-y-auto px-6 pb-8">
           {shopTab === "coins" ? (
             <div className="flex flex-col gap-3">
+              {/* Удалить рекламу — разовая покупка */}
+              {!player?.no_ads && (
+                <div className="border p-4 flex flex-col gap-3" style={{ borderColor: "rgba(0,230,118,0.4)", backgroundColor: "rgba(0,230,118,0.06)" }}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🚫</span>
+                    <span className="font-oswald text-lg font-bold uppercase" style={{ color: "#00e676" }}>УДАЛИТЬ РЕКЛАМУ</span>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.7)" }}>Никаких роликов между матчами</span>
+                    <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.5)" }}>Награды за видео остаются</span>
+                    <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.5)" }}>Один раз — навсегда</span>
+                  </div>
+                  <button
+                    className="w-full h-11 font-oswald text-base font-bold tracking-[0.15em] uppercase transition-all active:scale-95"
+                    style={{ backgroundColor: "#00e676", color: "#0f0f0f" }}
+                    onClick={() => {
+                      trackEvent("shop_no_ads_click");
+                      const pid = localStorage.getItem("ne_slomaisa_player_id");
+                      if (!pid) return;
+                      fetch(`${PAY_API}/?action=pay&item_id=no_ads&player_id=${pid}`, { headers: { "X-Player-Id": pid } })
+                        .then(r => r.json())
+                        .then(d => { if (d.url) window.location.href = d.url; });
+                    }}
+                  >
+                    199 ₽
+                  </button>
+                </div>
+              )}
+              {player?.no_ads && (
+                <div className="border p-4 flex items-center gap-3" style={{ borderColor: "rgba(0,230,118,0.4)", backgroundColor: "rgba(0,230,118,0.06)" }}>
+                  <Icon name="CheckCircle2" size={20} style={{ color: "#00e676" }} />
+                  <span className="font-oswald text-base font-bold uppercase" style={{ color: "#00e676" }}>Реклама отключена</span>
+                </div>
+              )}
+
               {/* Пакет выживания */}
               <div className="border p-4 flex flex-col gap-3" style={{ borderColor: "rgba(243,156,18,0.4)", backgroundColor: "rgba(243,156,18,0.06)" }}>
                 <div className="flex items-center gap-2">
@@ -2992,6 +3091,125 @@ export default function Index() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── REFERRAL / FRIENDS ──
+  if (screen === "referral") {
+    const code = referralData?.referral_code || player?.referral_code || "";
+    const total = referralData?.referrals_count ?? 0;
+    const eligibleCount = (referralData?.friends || []).filter(f => f.rewarded_eligible).length;
+    const rewarded = referralData?.referrals_rewarded ?? 0;
+    const claimable = Math.max(0, eligibleCount - rewarded);
+    const rewardPer = referralData?.reward_per_friend ?? 100;
+    return (
+      <div className="flex flex-col h-dvh w-full overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
+        <div className="flex items-center gap-3 px-5 pt-6 pb-4">
+          <button onClick={() => setScreen("home")} className="active:opacity-60 transition-opacity">
+            <Icon name="ArrowLeft" size={20} style={{ color: "rgba(255,255,255,0.5)" }} />
+          </button>
+          <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white flex-1">Зови друзей</h2>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 pb-8 flex flex-col gap-4">
+          <div className="border p-4 flex flex-col gap-3" style={{ borderColor: "rgba(243,156,18,0.4)", backgroundColor: "rgba(243,156,18,0.06)" }}>
+            <div className="flex items-center gap-2">
+              <Icon name="Gift" size={20} style={{ color: "#f39c12" }} />
+              <span className="font-oswald text-base font-bold uppercase" style={{ color: "#f39c12" }}>Награды</span>
+            </div>
+            <div className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.7)" }}>
+              За каждого друга, который зайдёт по твоей ссылке и сыграет 3 победы:
+            </div>
+            <div className="flex flex-col gap-1 pl-2">
+              <span className="font-rubik text-sm text-white">— тебе <b style={{ color: "#f39c12" }}>+{rewardPer} монет</b></span>
+              <span className="font-rubik text-sm text-white">— другу <b style={{ color: "#00e676" }}>+{referralData?.bonus_for_friend ?? 50} монет</b> на старте</span>
+            </div>
+          </div>
+
+          {code && (
+            <div className="border p-4 flex flex-col gap-3" style={{ borderColor: "rgba(255,255,255,0.1)", backgroundColor: "rgba(255,255,255,0.03)" }}>
+              <span className="font-rubik text-xs uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.5)" }}>Твой код</span>
+              <div className="flex items-center gap-3">
+                <span className="font-oswald text-3xl font-bold tracking-[0.3em]" style={{ color: "#f5f5f5" }}>{code}</span>
+                <button
+                  onClick={() => {
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(code);
+                      setReferralToast("Код скопирован");
+                      setTimeout(() => setReferralToast(""), 2000);
+                    }
+                  }}
+                  className="ml-auto active:opacity-60"
+                >
+                  <Icon name="Copy" size={18} style={{ color: "rgba(255,255,255,0.5)" }} />
+                </button>
+              </div>
+              <button
+                onClick={() => shareReferral(code)}
+                className="w-full h-12 font-oswald text-base font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+                style={{ backgroundColor: "#f39c12", color: "#0f0f0f" }}
+              >
+                <Icon name="Share2" size={18} />
+                Поделиться
+              </button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="border p-4 flex flex-col gap-1" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
+              <span className="font-rubik text-xs uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.5)" }}>Друзей пришло</span>
+              <span className="font-oswald text-3xl font-bold text-white">{total}</span>
+            </div>
+            <div className="border p-4 flex flex-col gap-1" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
+              <span className="font-rubik text-xs uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.5)" }}>Активных</span>
+              <span className="font-oswald text-3xl font-bold" style={{ color: "#00e676" }}>{eligibleCount}</span>
+            </div>
+          </div>
+
+          {claimable > 0 && (
+            <button
+              onClick={claimReferralReward}
+              className="w-full h-14 font-oswald text-lg font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2 animate-pulse"
+              style={{ backgroundColor: "#00e676", color: "#0f0f0f" }}
+            >
+              <Icon name="Coins" size={20} />
+              Забрать +{claimable * rewardPer} монет
+            </button>
+          )}
+
+          {referralToast && (
+            <div className="px-4 py-2 animate-result-in" style={{ backgroundColor: "rgba(0,230,118,0.12)", border: "1px solid rgba(0,230,118,0.3)" }}>
+              <span className="font-oswald text-sm font-bold uppercase" style={{ color: "#00e676" }}>{referralToast}</span>
+            </div>
+          )}
+
+          {referralData && referralData.friends.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <span className="font-rubik text-xs uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.5)" }}>Твои друзья</span>
+              {referralData.friends.map(f => (
+                <div key={f.id} className="border p-3 flex items-center justify-between" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
+                  <div className="flex flex-col">
+                    <span className="font-oswald text-sm font-bold text-white">{f.nickname}</span>
+                    <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>{f.wins} побед</span>
+                  </div>
+                  {f.rewarded_eligible ? (
+                    <Icon name="CheckCircle2" size={18} style={{ color: "#00e676" }} />
+                  ) : (
+                    <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>{Math.max(0, 3 - f.wins)} до награды</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {referralData && referralData.friends.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-6">
+              <Icon name="Users" size={40} style={{ color: "rgba(255,255,255,0.2)" }} />
+              <span className="font-rubik text-sm text-center" style={{ color: "rgba(255,255,255,0.5)" }}>Пока никого не пригласил.<br/>Поделись ссылкой — и заработай.</span>
             </div>
           )}
         </div>

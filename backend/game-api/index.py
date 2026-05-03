@@ -75,17 +75,131 @@ def handler(event: dict, context) -> dict:
     # ── POST /init-player ──
     if method == "POST" and (action == "init-player" or "/init-player" in path):
         nickname = body.get("nickname", "Игрок")
+        ref_code = (body.get("ref_code") or "").strip().upper()[:6] or None
+
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        referrer_id = None
+        if ref_code:
+            cur.execute(
+                f"SELECT id FROM {SCHEMA}.players WHERE referral_code = %s",
+                (ref_code,)
+            )
+            r = cur.fetchone()
+            if r:
+                referrer_id = r["id"]
+
         cur.execute(
-            f"INSERT INTO {SCHEMA}.players (nickname) VALUES (%s) RETURNING *",
-            (nickname,)
+            f"""INSERT INTO {SCHEMA}.players (nickname, referrer_id, referral_code)
+                VALUES (%s, %s, UPPER(SUBSTRING(MD5(RANDOM()::text || CLOCK_TIMESTAMP()::text), 1, 6)))
+                RETURNING *""",
+            (nickname, referrer_id)
         )
         player = dict(cur.fetchone())
+
+        if referrer_id:
+            cur.execute(
+                f"UPDATE {SCHEMA}.players SET referrals_count = referrals_count + 1 WHERE id = %s",
+                (referrer_id,)
+            )
+            cur.execute(
+                f"UPDATE {SCHEMA}.players SET coins = coins + 50 WHERE id = %s RETURNING coins",
+                (player["id"],)
+            )
+            updated = cur.fetchone()
+            if updated:
+                player["coins"] = updated["coins"]
+
         conn.commit()
         cur.close()
         conn.close()
         return resp(200, {"player": player})
+
+    # ── GET /referral-info — данные реферальной программы ──
+    if method == "GET" and (action == "referral-info" or "/referral-info" in path):
+        if not player_id:
+            return resp(400, {"error": "player_id required"})
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            f"""SELECT referral_code, referrals_count, referrals_rewarded
+                FROM {SCHEMA}.players WHERE id = %s""",
+            (player_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return resp(404, {"error": "player not found"})
+
+        cur.execute(
+            f"""SELECT id, nickname, wins, created_at,
+                       (wins >= 3) AS rewarded_eligible
+                FROM {SCHEMA}.players
+                WHERE referrer_id = %s
+                ORDER BY created_at DESC
+                LIMIT 50""",
+            (player_id,)
+        )
+        friends = [dict(r) for r in cur.fetchall()]
+
+        cur.close()
+        conn.close()
+        return resp(200, {
+            "referral_code": row["referral_code"],
+            "referrals_count": row["referrals_count"],
+            "referrals_rewarded": row["referrals_rewarded"],
+            "reward_per_friend": 100,
+            "bonus_for_friend": 50,
+            "friends": friends,
+        })
+
+    # ── POST /claim-referral — забрать награду за друзей сыгравших 3+ матча ──
+    if method == "POST" and (action == "claim-referral" or "/claim-referral" in path):
+        if not player_id:
+            return resp(400, {"error": "player_id required"})
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            f"""SELECT COUNT(*) AS cnt FROM {SCHEMA}.players
+                WHERE referrer_id = %s AND wins >= 3""",
+            (player_id,)
+        )
+        eligible = cur.fetchone()["cnt"]
+
+        cur.execute(
+            f"SELECT referrals_rewarded FROM {SCHEMA}.players WHERE id = %s",
+            (player_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return resp(404, {"error": "player not found"})
+
+        already_rewarded = row["referrals_rewarded"]
+        new_rewards = max(0, eligible - already_rewarded)
+
+        if new_rewards <= 0:
+            cur.close(); conn.close()
+            return resp(200, {"coins_added": 0, "new_rewards": 0})
+
+        coins_to_add = new_rewards * 100
+        cur.execute(
+            f"""UPDATE {SCHEMA}.players
+                SET coins = coins + %s, referrals_rewarded = %s
+                WHERE id = %s RETURNING *""",
+            (coins_to_add, eligible, player_id)
+        )
+        updated = dict(cur.fetchone())
+        conn.commit()
+        cur.close()
+        conn.close()
+        return resp(200, {
+            "player": updated,
+            "coins_added": coins_to_add,
+            "new_rewards": new_rewards,
+        })
 
     # ── POST /save-result ──
     if method == "POST" and (action == "save-result" or "/save-result" in path):

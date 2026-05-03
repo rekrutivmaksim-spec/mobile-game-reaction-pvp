@@ -72,6 +72,22 @@
       "expectedStatus": 400,
       "expectedBody": {"error": "player_id required"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Referral info — missing player_id",
+      "method": "GET",
+      "path": "/?action=referral-info",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "player_id required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Claim referral — missing player_id",
+      "method": "POST",
+      "path": "/?action=claim-referral",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "player_id required"},
+      "bodyMatcher": "partial"
     }
   ]
 }

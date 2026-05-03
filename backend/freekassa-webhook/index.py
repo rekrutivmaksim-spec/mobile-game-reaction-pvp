@@ -21,6 +21,7 @@ COIN_PACKAGES = {
     "coins_700":      {"coins": 700,  "price": "99.00"},
     "coins_1500":     {"coins": 1500, "price": "149.00"},
     "survival_pack":  {"coins": 300,  "price": "49.00", "bonus": [("retry", 3), ("streak_shield", 2)]},
+    "no_ads":         {"coins": 0,    "price": "199.00", "no_ads": True},
 }
 
 
@@ -139,10 +140,17 @@ def handler(event: dict, context) -> dict:
             cur.close(); conn.close()
             return resp_text(200, "YES")
 
-        cur.execute(
-            f"UPDATE {SCHEMA}.players SET coins = coins + %s WHERE id = %s",
-            (coins_to_add, player_id)
-        )
+        if coins_to_add > 0:
+            cur.execute(
+                f"UPDATE {SCHEMA}.players SET coins = coins + %s WHERE id = %s",
+                (coins_to_add, player_id)
+            )
+
+        if pkg.get("no_ads"):
+            cur.execute(
+                f"UPDATE {SCHEMA}.players SET no_ads = TRUE WHERE id = %s",
+                (player_id,)
+            )
 
         for effect_key, qty in pkg.get("bonus", []):
             cur.execute(
