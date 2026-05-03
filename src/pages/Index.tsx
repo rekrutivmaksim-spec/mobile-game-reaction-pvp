@@ -2949,7 +2949,7 @@ export default function Index() {
               )}
               {player?.no_ads && (
                 <div className="border p-4 flex items-center gap-3" style={{ borderColor: "rgba(0,230,118,0.4)", backgroundColor: "rgba(0,230,118,0.06)" }}>
-                  <Icon name="CheckCircle2" size={20} style={{ color: "#00e676" }} />
+                  <Icon name="CircleCheck" size={20} style={{ color: "#00e676" }} />
                   <span className="font-oswald text-base font-bold uppercase" style={{ color: "#00e676" }}>Реклама отключена</span>
                 </div>
               )}
@@ -3197,7 +3197,7 @@ export default function Index() {
                     <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>{f.wins} побед</span>
                   </div>
                   {f.rewarded_eligible ? (
-                    <Icon name="CheckCircle2" size={18} style={{ color: "#00e676" }} />
+                    <Icon name="CircleCheck" size={18} style={{ color: "#00e676" }} />
                   ) : (
                     <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>{Math.max(0, 3 - f.wins)} до награды</span>
                   )}
