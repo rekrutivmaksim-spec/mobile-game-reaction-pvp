@@ -1305,11 +1305,13 @@ export default function Index() {
     if (adLoading || adDoubleUsed || !result || result.type !== "win") return;
     setAdLoading(true);
     try {
-      const adResult = await showRewardedAd();
-      if (adResult !== "rewarded") {
-        setShopToast("Видео не досмотрено");
-        setTimeout(() => setShopToast(""), 2000);
-        return;
+      if (!player?.no_ads) {
+        const adResult = await showRewardedAd();
+        if (adResult !== "rewarded") {
+          setShopToast("Видео не досмотрено");
+          setTimeout(() => setShopToast(""), 2000);
+          return;
+        }
       }
       const pid = localStorage.getItem("ne_slomaisa_player_id");
       if (!pid) return;
@@ -1333,18 +1335,20 @@ export default function Index() {
     } finally {
       setAdLoading(false);
     }
-  }, [adLoading, adDoubleUsed, result]);
+  }, [adLoading, adDoubleUsed, result, player?.no_ads]);
 
   // Реванш: вернуть монеты и рейтинг за проигрыш
   const watchAdForRevenge = useCallback(async () => {
     if (adLoading || adRevengeUsed || !result || result.type === "win") return;
     setAdLoading(true);
     try {
-      const adResult = await showRewardedAd();
-      if (adResult !== "rewarded") {
-        setShopToast("Видео не досмотрено");
-        setTimeout(() => setShopToast(""), 2000);
-        return;
+      if (!player?.no_ads) {
+        const adResult = await showRewardedAd();
+        if (adResult !== "rewarded") {
+          setShopToast("Видео не досмотрено");
+          setTimeout(() => setShopToast(""), 2000);
+          return;
+        }
       }
       const pid = localStorage.getItem("ne_slomaisa_player_id");
       if (!pid) return;
@@ -1371,7 +1375,7 @@ export default function Index() {
     } finally {
       setAdLoading(false);
     }
-  }, [adLoading, adRevengeUsed, result]);
+  }, [adLoading, adRevengeUsed, result, player?.no_ads]);
 
   // Посмотреть видео за 100 монет
   const watchAdForCoins = useCallback(async () => {
@@ -2162,7 +2166,7 @@ export default function Index() {
               disabled={adLoading}
               onClick={watchAdForDouble}
             >
-              <Icon name="Play" size={14} />
+              <Icon name={player?.no_ads ? "Crown" : "Play"} size={14} />
               {adLoading ? "ЗАГРУЗКА..." : `УДВОИТЬ НАГРАДУ (+${result.coinsEarned} 🪙)`}
             </button>
           )}
@@ -2186,7 +2190,7 @@ export default function Index() {
                 disabled={adLoading}
                 onClick={watchAdForRevenge}
               >
-                <Icon name="Play" size={14} />
+                <Icon name={player?.no_ads ? "Crown" : "Play"} size={14} />
                 {adLoading ? "ЗАГРУЗКА..." : result.streakLost && result.streakLost >= 3 ? `СОХРАНИТЬ СЕРИЮ 🔥${result.streakLost}` : "ИСПРАВИТЬ ОШИБКУ"}
               </button>
               <span className="font-rubik text-center" style={{ fontSize: "clamp(9px, 2.5vw, 12px)", color: "rgba(255,255,255,0.3)" }}>
