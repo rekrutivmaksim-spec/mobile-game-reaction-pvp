@@ -714,15 +714,19 @@ export default function Index() {
       }
     }
 
-    // Контекстный оффер — усиленный
-    if (type === "false_start") {
-      setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Палец дёрнулся раньше. Вернуть попытку?" }), 400);
-    } else if (!isWin && streakLost && streakLost >= 3) {
-      setTimeout(() => setContextOffer({ itemId: "retry_1", message: `Серия ${streakLost} сгорела. Одна попытка — и она вернётся` }), 400);
-    } else if (!isWin && nearMiss === "close") {
-      setTimeout(() => setContextOffer({ itemId: "retry_1", message: `${Math.abs(playerMs - opponentMs)}мс — ты был быстрее. Переиграть?` }), 400);
-    } else if (!isWin && nearMiss === "edge") {
-      setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Ты почти вытянул. Ещё одна попытка?" }), 400);
+    // Контекстный оффер — только для опытных (3+ матчей), новичков не давим монетизацией
+    const totalMatchesPlayed = (curPlayer?.wins ?? 0) + (curPlayer?.losses ?? 0);
+    const offerAllowed = totalMatchesPlayed >= 3;
+    if (offerAllowed) {
+      if (type === "false_start") {
+        setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Палец дёрнулся раньше. Вернуть попытку?" }), 400);
+      } else if (!isWin && streakLost && streakLost >= 3) {
+        setTimeout(() => setContextOffer({ itemId: "retry_1", message: `Серия ${streakLost} сгорела. Одна попытка — и она вернётся` }), 400);
+      } else if (!isWin && nearMiss === "close") {
+        setTimeout(() => setContextOffer({ itemId: "retry_1", message: `${Math.abs(playerMs - opponentMs)}мс — ты был быстрее. Переиграть?` }), 400);
+      } else if (!isWin && nearMiss === "edge") {
+        setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Ты почти вытянул. Ещё одна попытка?" }), 400);
+      }
     }
 
     // Push permission: показать после ПЕРВОЙ победы — юзер вовлечён, выше шанс согласия
@@ -1590,30 +1594,30 @@ export default function Index() {
       <div className="fixed inset-0 flex flex-col items-center justify-center px-8 z-50 animate-fade-in" style={{ backgroundColor: "#0f0f0f" }}>
         <div className="flex flex-col items-center gap-6 w-full max-w-xs">
           {/* Иконка */}
-          <div className="w-16 h-16 flex items-center justify-center rounded-full" style={{ backgroundColor: "rgba(192,57,43,0.12)", border: "2px solid rgba(192,57,43,0.3)" }}>
-            <span className="text-3xl">⚡</span>
+          <div className="w-16 h-16 flex items-center justify-center rounded-full" style={{ backgroundColor: "rgba(0,230,118,0.12)", border: "2px solid rgba(0,230,118,0.3)" }}>
+            <span className="text-3xl">🎁</span>
           </div>
 
           {/* Текст */}
           <div className="flex flex-col items-center gap-2 text-center">
             <span className="font-oswald text-2xl font-bold uppercase tracking-wide text-white">
-              Не пропусти реванш
+              Получай бонусы
             </span>
             <span className="font-rubik text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.45)" }}>
-              Если ты был в шаге от победы — напомним. Без спама, только по делу.
+              Включи уведомления — будем дарить монеты, напоминать о ежедневных заданиях и личных рекордах.
             </span>
           </div>
 
-          {/* Примеры пушей */}
+          {/* Что получит игрок */}
           <div className="w-full flex flex-col gap-2">
             {[
-              "«17 мс… ты был очень близко»",
-              "«Ещё 1 победа до Серебра»",
-              "«Серия прервана. Вернись»",
+              { icon: "🪙", text: "Бонус 50 монет за подключение" },
+              { icon: "🔥", text: "Напомним о челлендже до конца дня" },
+              { icon: "🏆", text: "Сообщим, когда побьёшь свой рекорд" },
             ].map((ex, i) => (
               <div key={i} className="px-3 py-2 flex items-center gap-2" style={{ backgroundColor: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: "#c0392b" }} />
-                <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>{ex}</span>
+                <span className="text-sm flex-shrink-0">{ex.icon}</span>
+                <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.55)" }}>{ex.text}</span>
               </div>
             ))}
           </div>
@@ -1628,9 +1632,9 @@ export default function Index() {
                 if (pid) await requestPushPermission(pid);
               }}
               className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase active:scale-95 transition-all"
-              style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}
+              style={{ backgroundColor: "#00e676", color: "#0f0f0f" }}
             >
-              ВКЛЮЧИТЬ
+              ВКЛЮЧИТЬ И ПОЛУЧИТЬ 🪙
             </button>
             <button
               onClick={() => {
@@ -1922,8 +1926,6 @@ export default function Index() {
             { icon: "ShoppingBag", label: "Магазин", action: () => { setScreen("shop"); loadShop(); } },
             { icon: "CalendarCheck", label: "Задания", action: () => { setScreen("challenges"); loadChallenges(); } },
             { icon: "User", label: "Профиль", action: () => { setScreen("profile"); loadProfile(); } },
-            { icon: "Medal", label: "Ачивки", action: () => setShowAchievements(true) },
-            { icon: "UserPlus", label: "Друзья", action: () => { setScreen("referral"); loadReferralData(); trackEvent("referral_open"); } },
           ].map(({ icon, label, action }, idx) => {
             const hasBadge = idx === 3 && challenges.some(c => c.completed && !claimedIds.has(c.id));
             return (
@@ -2650,6 +2652,26 @@ export default function Index() {
             <Icon name="Zap" size={16} />
             УЛУЧШИТЬ РЕАКЦИЮ
           </button>
+
+          {/* Доп. разделы */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setShowAchievements(true)}
+              className="h-12 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+              style={{ backgroundColor: "rgba(243,156,18,0.1)", color: "#f39c12", border: "1px solid rgba(243,156,18,0.25)" }}
+            >
+              <Icon name="Medal" size={14} />
+              АЧИВКИ
+            </button>
+            <button
+              onClick={() => { setScreen("referral"); loadReferralData(); trackEvent("referral_open"); }}
+              className="h-12 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+              style={{ backgroundColor: "rgba(0,230,118,0.1)", color: "#00e676", border: "1px solid rgba(0,230,118,0.25)" }}
+            >
+              <Icon name="UserPlus" size={14} />
+              ДРУЗЬЯ
+            </button>
+          </div>
 
           {/* Информация (legal) */}
           <button
