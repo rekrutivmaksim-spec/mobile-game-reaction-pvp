@@ -1652,7 +1652,7 @@ export default function Index() {
     );
   }
 
-  // ═══════════════════ ONBOARDING TUTORIAL (3 экрана) ═══════════════════
+  // ═══════════════════ ONBOARDING TUTORIAL (5 экранов) ═══════════════════
   if (showOnboarding) {
     const steps = [
       {
@@ -1671,6 +1671,18 @@ export default function Index() {
         emoji: "⚠️",
         title: "НЕ СПЕШИ",
         text: "Если нажмёшь до зелёного — фальстарт. Большая серия теряется. Будь хладнокровен.",
+        accent: "#f39c12",
+      },
+      {
+        emoji: "🏆",
+        title: "ЛИГИ",
+        text: "Побеждай — растёт рейтинг и ты поднимаешься в лигах: Новичок → Бронза → Серебро → Золото → Платина → Алмаз. Чем выше лига — тем престижнее в топе.",
+        accent: "#3b82f6",
+      },
+      {
+        emoji: "🪙",
+        title: "МОНЕТЫ",
+        text: "За победы получаешь монеты. На них в магазине покупаешь скины, рамки и помощь — например, попытку после фальстарта.",
         accent: "#f39c12",
       },
     ];
@@ -1909,11 +1921,10 @@ export default function Index() {
             )}
             <button
               onClick={() => { setEnduranceActive(false); setEnduranceCount(0); setScreen("endurance"); }}
-              className="w-full h-11 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+              className="w-full h-11 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex flex-col items-center justify-center gap-0.5"
               style={{ backgroundColor: "transparent", color: "rgba(255,255,255,0.35)", border: "1px solid rgba(255,255,255,0.1)" }}
             >
-              <Icon name="Flame" size={13} />
-              НЕ СЛОМАЙСЯ x10
+              <span className="flex items-center gap-2"><Icon name="Flame" size={13} /> ЧЕЛЛЕНДЖ: 10 ПОБЕД ПОДРЯД</span>
             </button>
           </div>
         </div>
@@ -2699,12 +2710,20 @@ export default function Index() {
         </div>
 
         {/* Главный слоган — провокация */}
-        <div className="flex flex-col items-center gap-2 pb-6">
+        <div className="flex flex-col items-center gap-2 pb-4">
           <span className="font-oswald text-2xl font-bold uppercase text-center" style={{ color: "#c0392b" }}>
             КТО СЛОМАЕТСЯ ПЕРВЫМ?
           </span>
           <span className="font-rubik text-xs text-center" style={{ color: "rgba(255,255,255,0.25)" }}>
-            Проверь, кто выдержит давление
+            Соревнуйся с другом 1 на 1 — у кого реакция быстрее
+          </span>
+        </div>
+
+        {/* Как это работает */}
+        <div className="flex items-center gap-2 mb-4 px-3 py-2" style={{ backgroundColor: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+          <Icon name="Info" size={12} style={{ color: "rgba(255,255,255,0.35)" }} />
+          <span className="font-rubik text-xs leading-snug" style={{ color: "rgba(255,255,255,0.4)" }}>
+            Создай комнату — отправь код другу. Кто покажет лучшее время — тот и победил.
           </span>
         </div>
 
@@ -2878,6 +2897,24 @@ export default function Index() {
             </span>
             <span className="font-rubik text-xs uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.2)" }}>выдержал</span>
           </div>
+
+          {!isDone && enduranceCount === 0 && (
+            <div className="w-full max-w-xs flex flex-col gap-2 px-4 py-3" style={{ backgroundColor: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+              <span className="font-oswald text-xs uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.45)" }}>Как это работает</span>
+              <div className="flex items-start gap-2">
+                <span className="font-oswald text-sm font-bold" style={{ color: "#00e676" }}>1</span>
+                <span className="font-rubik text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.5)" }}>Сыграй 10 матчей подряд</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="font-oswald text-sm font-bold" style={{ color: "#00e676" }}>2</span>
+                <span className="font-rubik text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.5)" }}>Любое поражение или фальстарт — счёт обнуляется</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="font-oswald text-sm font-bold" style={{ color: "#f39c12" }}>🏆</span>
+                <span className="font-rubik text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.5)" }}>Награда: ачивка «Стальные нервы» и бонусные монеты</span>
+              </div>
+            </div>
+          )}
 
           {isDone && (
             <div className="border px-6 py-3 flex items-center gap-3 animate-result-in" style={{ borderColor: "rgba(0,230,118,0.4)", backgroundColor: "rgba(0,230,118,0.07)" }}>
