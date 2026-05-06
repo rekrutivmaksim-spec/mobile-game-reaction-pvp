@@ -90,14 +90,30 @@
 </div>
 <div id="root"></div>
 <script>
-    window.addEventListener('load', function () {
-        setTimeout(function () {
+    (function () {
+        var hidden = false;
+        function hideSplash() {
+            if (hidden) return;
+            hidden = true;
             var s = document.getElementById('ne-splash');
             if (!s) return;
             s.style.opacity = '0';
             setTimeout(function () { s.remove(); }, 300);
-        }, 200);
-    });
+        }
+        // Прячем как только React отрисовал #root
+        var root = document.getElementById('root');
+        if (root) {
+            var observer = new MutationObserver(function () {
+                if (root.children.length > 0) {
+                    observer.disconnect();
+                    hideSplash();
+                }
+            });
+            observer.observe(root, { childList: true });
+        }
+        // Страховка: даже если что-то пошло не так — убрать через 6 сек
+        setTimeout(hideSplash, 6000);
+    })();
 </script>
 <script type="module" src="/src/main.tsx"></script>
 
