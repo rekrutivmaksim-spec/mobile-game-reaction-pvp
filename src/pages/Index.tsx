@@ -309,6 +309,7 @@ export default function Index() {
   // Sound & vibration toggles
   const [soundOn, setSoundOn] = useState<boolean>(() => localStorage.getItem("ne_sound") !== "0");
   const [vibrationOn, setVibrationOn] = useState<boolean>(() => localStorage.getItem("ne_vibration") !== "0");
+  const vibrationSupported = typeof navigator !== "undefined" && typeof navigator.vibrate === "function";
   const toggleSound = () => {
     const next = !soundOn;
     setSoundOn(next);
@@ -1743,9 +1744,11 @@ export default function Index() {
           <button onClick={toggleSound} className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90" style={{ backgroundColor: "rgba(255,255,255,0.05)" }} aria-label="Звук">
             <Icon name={soundOn ? "Volume2" : "VolumeX"} size={14} style={{ color: soundOn ? "#f5f5f5" : "rgba(255,255,255,0.3)" }} />
           </button>
-          <button onClick={toggleVibration} className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90" style={{ backgroundColor: "rgba(255,255,255,0.05)" }} aria-label="Вибрация">
-            <Icon name={vibrationOn ? "Vibrate" : "VibrateOff"} size={14} style={{ color: vibrationOn ? "#f5f5f5" : "rgba(255,255,255,0.3)" }} />
-          </button>
+          {vibrationSupported && (
+            <button onClick={toggleVibration} className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90" style={{ backgroundColor: "rgba(255,255,255,0.05)" }} aria-label="Вибрация">
+              <Icon name={vibrationOn ? "Vibrate" : "VibrateOff"} size={14} style={{ color: vibrationOn ? "#f5f5f5" : "rgba(255,255,255,0.3)" }} />
+            </button>
+          )}
         </div>
 
         {/* Stats */}
@@ -1782,7 +1785,7 @@ export default function Index() {
         <div className="flex items-center justify-center gap-1.5">
           <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "#27ae60", boxShadow: "0 0 6px rgba(39,174,96,0.6)", animation: "pulse 2s ease-in-out infinite" }} />
           <span className="font-rubik tracking-widest uppercase" style={{ fontSize: "clamp(9px, 2.5vw, 12px)", color: "rgba(255,255,255,0.3)" }}>
-            {onlineCount} игроков онлайн
+            ~{Math.round(onlineCount / 10) * 10} игроков онлайн
           </span>
         </div>
         {player && ((player as {today_matches?: number}).today_matches ?? 0) > 0 && (
@@ -1821,11 +1824,14 @@ export default function Index() {
             {/* Цель — лига */}
             {leagueProgress.next && (
               <div className="flex items-center gap-2 mt-1 px-3 py-1.5 border" style={{ borderColor: `${leagueProgress.next.color}30`, backgroundColor: `${leagueProgress.next.color}08` }}>
+                <span className="text-sm">{currentLeague.icon}</span>
+                <span className="font-oswald text-xs uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.4)" }}>{currentLeague.name}</span>
+                <Icon name="ChevronRight" size={12} style={{ color: "rgba(255,255,255,0.25)" }} />
                 <span className="text-sm">{leagueProgress.next.icon}</span>
                 <span className="font-oswald text-xs uppercase tracking-wider" style={{ color: leagueProgress.next.color }}>
                   {leagueProgress.pointsLeft <= 50
-                    ? `${Math.ceil(leagueProgress.pointsLeft / 25)} ${Math.ceil(leagueProgress.pointsLeft / 25) === 1 ? "победа" : "победы"} до ${leagueProgress.next.name}`
-                    : `до ${leagueProgress.next.name}: ${leagueProgress.pointsLeft}`
+                    ? `${Math.ceil(leagueProgress.pointsLeft / 25)} ${Math.ceil(leagueProgress.pointsLeft / 25) === 1 ? "победа" : "победы"}`
+                    : `${leagueProgress.pointsLeft} очков`
                   }
                 </span>
               </div>
@@ -2084,11 +2090,11 @@ export default function Index() {
       : result.nearMiss === "edge"
       ? "Почти… разница минимальная"
       : null;
-    const titleText = isFalseStart ? "ТЫ СЛОМАЛСЯ"
+    const titleText = isFalseStart ? "ФАЛЬСТАРТ"
       : result.nearMiss === "close" ? (isWin ? "НА ВОЛОСКЕ!" : "ПОЧТИ…")
       : isWin ? "ТЫ ВЫДЕРЖАЛ" : "ТЫ СЛОМАЛСЯ";
     const timeDiff = Math.abs(Math.round(result.opponentTime - result.playerTime));
-    const subtitleText = isFalseStart ? "Слишком рано"
+    const subtitleText = isFalseStart ? "Палец дёрнулся раньше зелёного"
       : (result.opponentTime === -1 && isWin) ? "Он сломался раньше тебя"
       : isWin ? `быстрее соперника на ${timeDiff} мс`
       : result.nearMiss ? `${timeDiff} мс... ты был очень близко` : "Он был быстрее��";
@@ -2268,7 +2274,11 @@ export default function Index() {
 
         <div className="flex flex-col gap-3 w-full">
           <button
-            onClick={() => { if (enduranceActive) { setScreen("endurance"); } else { startMatch(); } }}
+            onClick={() => {
+              if (startMatchBusyRef.current) return;
+              if (enduranceActive) { setScreen("endurance"); } else { startMatch(); }
+            }}
+            disabled={startMatchBusyRef.current}
             className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
             style={{ backgroundColor: accentColor, color: isWin ? "#0f0f0f" : "#f5f5f5" }}
           >
@@ -2610,14 +2620,25 @@ export default function Index() {
             <div className="flex gap-6">
               <div className="flex flex-col gap-0.5">
                 <span className="font-oswald text-2xl font-bold" style={{ color: "#00e676" }}>{player?.best_reaction ? `${player.best_reaction}мс` : "—"}</span>
-                <span className="font-rubik" style={{ fontSize: "clamp(9px, 2.5vw, 12px)", color: "rgba(255,255,255,0.2)" }}>Лучшая реакция</span>
+                <span className="font-rubik" style={{ fontSize: "clamp(9px, 2.5vw, 12px)", color: "rgba(255,255,255,0.2)" }}>Лучшая</span>
               </div>
               <div className="w-px" style={{ backgroundColor: "rgba(255,255,255,0.07)" }} />
               <div className="flex flex-col gap-0.5">
                 <span className="font-oswald text-2xl font-bold" style={{ color: "rgba(255,255,255,0.6)" }}>{profileData?.avg_reaction ? `${profileData.avg_reaction}мс` : "—"}</span>
-                <span className="font-rubik" style={{ fontSize: "clamp(9px, 2.5vw, 12px)", color: "rgba(255,255,255,0.2)" }}>Средняя реакция</span>
+                <span className="font-rubik" style={{ fontSize: "clamp(9px, 2.5vw, 12px)", color: "rgba(255,255,255,0.2)" }}>Средняя</span>
               </div>
             </div>
+            {player?.best_reaction && (
+              <div className="pt-2 mt-1 border-t" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
+                <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
+                  {player.best_reaction <= 200 ? "⚡ Быстрее 95% игроков — топ" :
+                   player.best_reaction <= 250 ? "🔥 Быстрее 80% игроков" :
+                   player.best_reaction <= 300 ? "👍 Быстрее половины" :
+                   player.best_reaction <= 400 ? "📈 Средняя скорость, есть куда расти" :
+                   "💪 Тренируйся — реакция растёт с практикой"}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* CTA: улучшить реакцию */}
