@@ -617,12 +617,14 @@ export default function Index() {
     setPhase("done");
 
     const isWin = type === "win";
-    const ratingDelta = isWin ? 25 : -15;
+    // Фальстарт с малой серией прощается — серия не теряется, штраф мягче
+    const isForgiven = type === "false_start" && (curPlayer?.streak ?? 0) < 5;
+    const ratingDelta = isWin ? 25 : (isForgiven ? -5 : -15);
     const currentStreak = curPlayer?.streak ?? 0;
-    const streakLost = !isWin && currentStreak >= 2 ? currentStreak : undefined;
-    const newStreak = isWin ? currentStreak + 1 : 0;
+    const streakLost = !isWin && !isForgiven && currentStreak >= 2 ? currentStreak : undefined;
+    const newStreak = isWin ? currentStreak + 1 : (isForgiven ? currentStreak : 0);
     const streakBonus = newStreak >= 5 ? 2 : 1;
-    const coins_earned = (isWin ? 20 : -10) * streakBonus;
+    const coins_earned = (isWin ? 20 : (isForgiven ? -3 : -10)) * streakBonus;
 
     const prevRating = curPlayer?.rating ?? 1000;
     const newRatingVal = Math.max(0, prevRating + ratingDelta);
@@ -703,10 +705,9 @@ export default function Index() {
       setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Ты почти вытянул. Ещё одна попытка?" }), 400);
     }
 
-    // Push permission: показать свой экран после 3-го матча
-    const totalPlayed = (newPlayer?.wins ?? 0) + (newPlayer?.losses ?? 0);
+    // Push permission: показать после ПЕРВОЙ победы — юзер вовлечён, выше шанс согласия
     const pushAsked = localStorage.getItem("push_asked");
-    if (!pushAsked && totalPlayed >= 3) {
+    if (!pushAsked && type === "win") {
       setTimeout(() => setPushPromo(true), 1800);
     }
 
@@ -733,8 +734,8 @@ export default function Index() {
       const INTERSTITIAL_COOLDOWN = 5 * 60 * 1000;
       const nowTs = Date.now();
       const canShowInterstitial = !player?.no_ads
-        && matchCountRef.current >= 3
-        && matchCountRef.current % 3 === 0
+        && matchCountRef.current >= 5
+        && matchCountRef.current % 5 === 0
         && (nowTs - lastInterstitialRef.current) >= INTERSTITIAL_COOLDOWN;
       if (canShowInterstitial) {
         lastInterstitialRef.current = nowTs;
@@ -1744,41 +1745,27 @@ export default function Index() {
             >
               {streak >= 3 ? "рискнёшь продолжить?" : "ошибка = поражение"}
             </span>
-            {coins < 50 ? (
-              <div className="w-full flex flex-col gap-2">
-                <div className="w-full border px-4 py-3 flex flex-col items-center gap-1" style={{ borderColor: "rgba(192,57,43,0.4)", backgroundColor: "rgba(192,57,43,0.06)" }}>
-                  <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#c0392b" }}>Пополни монеты</span>
-                  <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>Смотри видео и получай монеты · у тебя {coins}</span>
-                </div>
-                <button
-                  onClick={watchAdForCoins}
-                  disabled={adLoading}
-                  className="w-full h-14 font-oswald text-base font-bold tracking-[0.2em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
-                  style={{ backgroundColor: "#00e676", color: "#0f0f0f", opacity: adLoading ? 0.6 : 1 }}
-                >
-                  <Icon name="Play" size={18} />
-                  {adLoading ? "ЗАГРУЗКА..." : "ПОЛУЧИТЬ +100 МОНЕТ"}
-                </button>
-                <button
-                  onClick={() => { setShopTab("coins"); setScreen("shop"); }}
-                  className="w-full h-11 font-oswald text-xs font-bold tracking-[0.15em] uppercase transition-all active:scale-95"
-                  style={{ backgroundColor: "transparent", color: "rgba(255,255,255,0.3)", border: "1px solid rgba(255,255,255,0.1)" }}
-                >
-                  🪙 ИЛИ КУПИТЬ МОНЕТЫ
-                </button>
-              </div>
-            ) : (
+            <button
+              onClick={startMatch}
+              className="w-full h-16 font-oswald text-xl font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
+              style={{
+                backgroundColor: "#c0392b",
+                color: "#f5f5f5",
+                boxShadow: "0 0 30px rgba(192,57,43,0.4)",
+                animation: "pulse 2.5s ease-in-out infinite",
+              }}
+            >
+              {btnLabel}
+            </button>
+            {coins < 50 && !player?.no_ads && (
               <button
-                onClick={startMatch}
-                className="w-full h-16 font-oswald text-xl font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
-                style={{
-                  backgroundColor: "#c0392b",
-                  color: "#f5f5f5",
-                  boxShadow: "0 0 30px rgba(192,57,43,0.4)",
-                  animation: "pulse 2.5s ease-in-out infinite",
-                }}
+                onClick={watchAdForCoins}
+                disabled={adLoading}
+                className="w-full h-10 font-rubik text-xs tracking-wider uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+                style={{ color: "rgba(255,255,255,0.45)", opacity: adLoading ? 0.5 : 1 }}
               >
-                {btnLabel}
+                <Icon name="Play" size={12} />
+                {adLoading ? "загрузка…" : "+100 монет за видео"}
               </button>
             )}
             <button
@@ -1802,7 +1789,6 @@ export default function Index() {
             { icon: "User", label: "Профиль", action: () => { setScreen("profile"); loadProfile(); } },
             { icon: "Medal", label: "Ачивки", action: () => setShowAchievements(true) },
             { icon: "UserPlus", label: "Друзья", action: () => { setScreen("referral"); loadReferralData(); trackEvent("referral_open"); } },
-            { icon: "Info", label: "Инфо", action: () => { setScreen("legal"); } },
           ].map(({ icon, label, action }, idx) => {
             const hasBadge = idx === 3 && challenges.some(c => c.completed && !claimedIds.has(c.id));
             return (
@@ -2512,6 +2498,16 @@ export default function Index() {
           >
             <Icon name="Zap" size={16} />
             УЛУЧШИТЬ РЕАКЦИЮ
+          </button>
+
+          {/* Информация (legal) */}
+          <button
+            onClick={() => setScreen("legal")}
+            className="w-full h-11 font-rubik text-xs tracking-wider uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+            style={{ color: "rgba(255,255,255,0.4)" }}
+          >
+            <Icon name="Info" size={14} />
+            Информация и правила
           </button>
         </div>
       </div>
