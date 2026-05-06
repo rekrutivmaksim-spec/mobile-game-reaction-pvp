@@ -714,9 +714,9 @@ export default function Index() {
       }
     }
 
-    // Контекстный оффер — только для опытных (3+ матчей), новичков не давим монетизацией
+    // Контекстный оффер — только для опытных (5+ матчей), новичков не давим монетизацией
     const totalMatchesPlayed = (curPlayer?.wins ?? 0) + (curPlayer?.losses ?? 0);
-    const offerAllowed = totalMatchesPlayed >= 3;
+    const offerAllowed = totalMatchesPlayed >= 5;
     if (offerAllowed) {
       if (type === "false_start") {
         setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Палец дёрнулся раньше. Вернуть попытку?" }), 400);
@@ -1689,12 +1689,21 @@ export default function Index() {
     const step = steps[onboardStep] ?? steps[0];
     const isLast = onboardStep >= steps.length - 1;
     return (
-      <div className="fixed inset-0 flex flex-col items-center justify-center px-8 z-50 animate-fade-in" style={{ backgroundColor: "#0f0f0f" }}>
-        <div className="flex flex-col items-center gap-8 w-full max-w-xs">
-          {/* Прогресс */}
-          <div className="flex gap-2">
+      <div className="fixed inset-0 flex flex-col items-center justify-center px-8 z-50 animate-fade-in" style={{ backgroundColor: "#0f0f0f", paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}>
+        {/* Skip — всегда виден в верхнем углу */}
+        <button
+          onClick={() => { setShowOnboarding(false); trackEvent("tutorial_skip", { step: onboardStep }); }}
+          className="absolute top-4 right-4 font-rubik text-xs uppercase tracking-wider active:opacity-60 px-3 py-2"
+          style={{ color: "rgba(255,255,255,0.4)", top: "calc(env(safe-area-inset-top) + 12px)" }}
+        >
+          Пропустить
+        </button>
+
+        <div className="flex flex-col items-center gap-7 w-full max-w-xs">
+          {/* Прогресс — мельче */}
+          <div className="flex gap-1.5">
             {steps.map((_, i) => (
-              <div key={i} className="h-1 rounded-full transition-all" style={{ width: i === onboardStep ? 28 : 8, backgroundColor: i <= onboardStep ? step.accent : "rgba(255,255,255,0.15)" }} />
+              <div key={i} className="h-0.5 rounded-full transition-all" style={{ width: i === onboardStep ? 20 : 6, backgroundColor: i <= onboardStep ? step.accent : "rgba(255,255,255,0.15)" }} />
             ))}
           </div>
 
@@ -1710,7 +1719,7 @@ export default function Index() {
           </div>
 
           {/* Кнопки */}
-          <div className="flex flex-col gap-2 w-full">
+          <div className="flex flex-col gap-2 w-full" style={{ marginBottom: "env(safe-area-inset-bottom)" }}>
             <button
               onClick={() => {
                 if (isLast) {
@@ -1725,15 +1734,6 @@ export default function Index() {
             >
               {isLast ? "НАЧАТЬ" : "ДАЛЬШЕ"}
             </button>
-            {!isLast && (
-              <button
-                onClick={() => { setShowOnboarding(false); trackEvent("tutorial_skip", { step: onboardStep }); }}
-                className="font-rubik text-xs text-center active:opacity-60 py-2"
-                style={{ color: "rgba(255,255,255,0.3)" }}
-              >
-                Пропустить
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -1756,13 +1756,13 @@ export default function Index() {
         ))}
 
         {/* Toggles: звук/вибрация (плавающая панелька в правом верхнем углу) */}
-        <div className="absolute top-3 right-3 flex items-center gap-1 z-10">
-          <button onClick={toggleSound} className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90" style={{ backgroundColor: "rgba(255,255,255,0.05)" }} aria-label="Звук">
-            <Icon name={soundOn ? "Volume2" : "VolumeX"} size={14} style={{ color: soundOn ? "#f5f5f5" : "rgba(255,255,255,0.3)" }} />
+        <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
+          <button onClick={toggleSound} className="w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90" style={{ backgroundColor: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)" }} aria-label="Звук">
+            <Icon name={soundOn ? "Volume2" : "VolumeX"} fallback="Volume2" size={16} style={{ color: soundOn ? "#f5f5f5" : "rgba(255,255,255,0.45)" }} />
           </button>
           {vibrationSupported && (
-            <button onClick={toggleVibration} className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90" style={{ backgroundColor: "rgba(255,255,255,0.05)" }} aria-label="Вибрация">
-              <Icon name={vibrationOn ? "Vibrate" : "VibrateOff"} size={14} style={{ color: vibrationOn ? "#f5f5f5" : "rgba(255,255,255,0.3)" }} />
+            <button onClick={toggleVibration} className="w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90" style={{ backgroundColor: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)" }} aria-label="Вибрация">
+              <Icon name={vibrationOn ? "Vibrate" : "VibrateOff"} fallback="Vibrate" size={16} style={{ color: vibrationOn ? "#f5f5f5" : "rgba(255,255,255,0.45)" }} />
             </button>
           )}
         </div>
@@ -1788,7 +1788,7 @@ export default function Index() {
             ) : streak > 0 ? (
               <span className="font-oswald text-2xl font-bold" style={{ color: "#f39c12" }}>🔥 {streak}</span>
             ) : (
-              <span className="font-rubik text-center leading-tight" style={{ fontSize: "clamp(9px, 2.5vw, 12px)", color: "rgba(255,255,255,0.2)", maxWidth: "clamp(50px, 15vw, 80px)" }}>начни серию</span>
+              <span className="font-oswald text-2xl font-bold" style={{ color: "rgba(255,255,255,0.2)" }}>—</span>
             )}
           </div>
           <div className="flex flex-col items-end gap-0.5">
@@ -1831,12 +1831,14 @@ export default function Index() {
 
           {/* Вызов + триггер */}
           <div className="flex flex-col items-center gap-1.5">
-            <span
-              className="font-oswald text-base uppercase tracking-wider text-center"
-              style={{ color: "rgba(255,255,255,0.55)", animation: "pulse 3s ease-in-out infinite" }}
-            >
-              {streak >= 5 ? `${streak} побед подряд. Не сломайся` : "90% игроков ошибаются"}
-            </span>
+            {streak >= 5 && (
+              <span
+                className="font-oswald text-base uppercase tracking-wider text-center"
+                style={{ color: "rgba(255,255,255,0.6)", animation: "pulse 3s ease-in-out infinite" }}
+              >
+                {streak} побед подряд. Не сломайся
+              </span>
+            )}
             {/* Цель — лига */}
             {leagueProgress.next && (
               <div className="flex items-center gap-2 mt-1 px-3 py-1.5 border" style={{ borderColor: `${leagueProgress.next.color}30`, backgroundColor: `${leagueProgress.next.color}08` }}>
@@ -1852,16 +1854,12 @@ export default function Index() {
                 </span>
               </div>
             )}
-            {/* Персональный триггер */}
-            {profileData ? (
+            {/* Персональный триггер — только если есть данные */}
+            {profileData && profileData.percent_better > 0 && (
               <span className="font-rubik text-xs text-center" style={{ color: "#f39c12" }}>
                 ты быстрее {profileData.percent_better}% игроков
               </span>
-            ) : !leagueProgress.next ? (
-              <span className="font-rubik text-xs text-center" style={{ color: "rgba(255,255,255,0.2)" }}>
-                {player?.nickname ?? "Игрок"} · готов к бою?
-              </span>
-            ) : null}
+            )}
             {/* Титул */}
             {equippedTitle && (
               <span className="font-oswald text-xs uppercase tracking-[0.2em] px-2 py-0.5 mt-0.5" style={{ color: "#f39c12", border: "1px solid rgba(243,156,18,0.3)", backgroundColor: "rgba(243,156,18,0.06)" }}>
@@ -1890,12 +1888,14 @@ export default function Index() {
 
           {/* Кнопка + давление */}
           <div className="flex flex-col items-center gap-2 w-full max-w-xs">
-            <span
-              className="font-rubik uppercase tracking-widest"
-              style={{ fontSize: "clamp(10px, 2.8vw, 13px)", color: "rgba(255,255,255,0.2)", animation: "pulse 2.5s ease-in-out infinite" }}
-            >
-              {streak >= 3 ? "рискнёшь продолжить?" : "ошибка = поражение"}
-            </span>
+            {streak >= 3 && (
+              <span
+                className="font-rubik uppercase tracking-widest"
+                style={{ fontSize: "clamp(10px, 2.8vw, 13px)", color: "rgba(255,255,255,0.25)", animation: "pulse 2.5s ease-in-out infinite" }}
+              >
+                рискнёшь продолжить?
+              </span>
+            )}
             <button
               onClick={startMatch}
               className="w-full h-16 font-oswald text-xl font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
@@ -1921,10 +1921,11 @@ export default function Index() {
             )}
             <button
               onClick={() => { setEnduranceActive(false); setEnduranceCount(0); setScreen("endurance"); }}
-              className="w-full h-11 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex flex-col items-center justify-center gap-0.5"
-              style={{ backgroundColor: "transparent", color: "rgba(255,255,255,0.35)", border: "1px solid rgba(255,255,255,0.1)" }}
+              className="w-full h-12 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+              style={{ backgroundColor: "rgba(243,156,18,0.08)", color: "#f39c12", border: "1px dashed rgba(243,156,18,0.5)" }}
             >
-              <span className="flex items-center gap-2"><Icon name="Flame" size={13} /> ЧЕЛЛЕНДЖ: 10 ПОБЕД ПОДРЯД</span>
+              <Icon name="Flame" size={15} />
+              ЧЕЛЛЕНДЖ: 10 ПОБЕД ПОДРЯД
             </button>
           </div>
         </div>
@@ -2119,7 +2120,7 @@ export default function Index() {
         <div className="flex flex-col items-center gap-5 animate-result-in w-full">
           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: accentColor, boxShadow: `0 0 20px ${accentColor}` }} />
           <div className="flex flex-col items-center gap-2">
-            <span className={`font-oswald font-bold uppercase text-center leading-none ${isWin ? "animate-win-glow" : "animate-lose-glow"}`} style={{ fontSize: "clamp(2.5rem, 12vw, 4rem)", color: accentColor }}>
+            <span className={`font-oswald font-bold uppercase text-center leading-none ${isWin ? "animate-win-glow" : "animate-lose-glow"}`} style={{ fontSize: isFalseStart ? "clamp(2rem, 10vw, 3.5rem)" : "clamp(2.5rem, 12vw, 4rem)", color: accentColor, maxWidth: "100%", overflowWrap: "break-word" }}>
               {titleText}
             </span>
             <span className="font-rubik text-sm text-center" style={{ color: "rgba(255,255,255,0.3)" }}>{subtitleText}</span>
@@ -2644,10 +2645,10 @@ export default function Index() {
             {player?.best_reaction && (
               <div className="pt-2 mt-1 border-t" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
                 <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
-                  {player.best_reaction <= 200 ? "⚡ Быстрее 95% игроков — топ" :
-                   player.best_reaction <= 250 ? "🔥 Быстрее 80% игроков" :
-                   player.best_reaction <= 300 ? "👍 Быстрее половины" :
-                   player.best_reaction <= 400 ? "📈 Средняя скорость, есть куда расти" :
+                  {player.best_reaction <= 200 ? "⚡ Топ-уровень реакции" :
+                   player.best_reaction <= 250 ? "🔥 Отличная реакция" :
+                   player.best_reaction <= 300 ? "👍 Хорошая реакция" :
+                   player.best_reaction <= 400 ? "📈 Средняя — есть куда расти" :
                    "💪 Тренируйся — реакция растёт с практикой"}
                 </span>
               </div>
