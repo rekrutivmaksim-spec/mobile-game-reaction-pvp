@@ -306,6 +306,25 @@ export default function Index() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardStep, setOnboardStep] = useState(0);
 
+  // Sound & vibration toggles
+  const [soundOn, setSoundOn] = useState<boolean>(() => localStorage.getItem("ne_sound") !== "0");
+  const [vibrationOn, setVibrationOn] = useState<boolean>(() => localStorage.getItem("ne_vibration") !== "0");
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    localStorage.setItem("ne_sound", next ? "1" : "0");
+  };
+  const toggleVibration = () => {
+    const next = !vibrationOn;
+    setVibrationOn(next);
+    localStorage.setItem("ne_vibration", next ? "1" : "0");
+  };
+  const vibrate = (pattern: number | number[]) => {
+    if (vibrationOn && navigator.vibrate) navigator.vibrate(pattern);
+  };
+  const playHeartbeat = (volume = 0.3) => { if (soundOn) playHeartbeatOnce(volume); };
+  const playTap = () => { if (soundOn) playTapClick(); };
+
   // Streak milestone celebration
   const [streakMilestone, setStreakMilestone] = useState<number | null>(null);
 
@@ -720,6 +739,19 @@ export default function Index() {
       setNearMissBlackout(true);
       if (navigator.vibrate) navigator.vibrate([15, 300, 15]);
       setTimeout(() => setNearMissBlackout(false), 1200);
+    }
+
+    // Драма при потере крупной серии (10+) — усиленная вибрация и тряска
+    if (streakLost && streakLost >= 10) {
+      vibrate([300, 80, 300, 80, 500]);
+      setShaking(true);
+      setTimeout(() => setShaking(false), 1200);
+      setScreenFlash("red");
+      setTimeout(() => setScreenFlash("none"), 800);
+    } else if (streakLost && streakLost >= 5) {
+      vibrate([200, 60, 200]);
+      setShaking(true);
+      setTimeout(() => setShaking(false), 600);
     }
 
     matchCountRef.current++;
@@ -1275,6 +1307,16 @@ export default function Index() {
     }
   }, [duelRoom, player]);
 
+  // ── DUEL: шаринг через Telegram ──
+  const shareDuelTelegram = useCallback(() => {
+    if (!duelRoom) return;
+    const url = `${window.location.origin}?duel=${duelRoom.id}`;
+    const text = `Я вызываю тебя в "Не сломайся"! Сможешь не дёрнуться?`;
+    const tgUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
+    window.open(tgUrl, "_blank");
+    trackEvent("duel_share_telegram");
+  }, [duelRoom]);
+
   // ── SHOP: загрузить каталог ──
   const loadShop = useCallback(() => {
     const pid = localStorage.getItem("ne_slomaisa_player_id");
@@ -1605,6 +1647,82 @@ export default function Index() {
     );
   }
 
+  // ═══════════════════ ONBOARDING TUTORIAL (3 экрана) ═══════════════════
+  if (showOnboarding) {
+    const steps = [
+      {
+        emoji: "🔴",
+        title: "ЖДИ КРАСНЫЙ",
+        text: "Когда экран красный — не нажимай. Жди.",
+        accent: "#c0392b",
+      },
+      {
+        emoji: "🟢",
+        title: "ЖМИ ПРИ ЗЕЛЁНОМ",
+        text: "Как только экран стал зелёным — тапни как можно быстрее. Игра измерит твою реакцию.",
+        accent: "#00e676",
+      },
+      {
+        emoji: "⚠️",
+        title: "НЕ СПЕШИ",
+        text: "Если нажмёшь до зелёного — фальстарт. Большая серия теряется. Будь хладнокровен.",
+        accent: "#f39c12",
+      },
+    ];
+    const step = steps[onboardStep] ?? steps[0];
+    const isLast = onboardStep >= steps.length - 1;
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center px-8 z-50 animate-fade-in" style={{ backgroundColor: "#0f0f0f" }}>
+        <div className="flex flex-col items-center gap-8 w-full max-w-xs">
+          {/* Прогресс */}
+          <div className="flex gap-2">
+            {steps.map((_, i) => (
+              <div key={i} className="h-1 rounded-full transition-all" style={{ width: i === onboardStep ? 28 : 8, backgroundColor: i <= onboardStep ? step.accent : "rgba(255,255,255,0.15)" }} />
+            ))}
+          </div>
+
+          {/* Эмоджи */}
+          <div className="w-24 h-24 flex items-center justify-center rounded-full" style={{ backgroundColor: `${step.accent}15`, border: `2px solid ${step.accent}50` }}>
+            <span className="text-5xl">{step.emoji}</span>
+          </div>
+
+          {/* Текст */}
+          <div className="flex flex-col items-center gap-3 text-center">
+            <span className="font-oswald text-2xl font-bold uppercase tracking-wider" style={{ color: step.accent }}>{step.title}</span>
+            <span className="font-rubik text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.55)" }}>{step.text}</span>
+          </div>
+
+          {/* Кнопки */}
+          <div className="flex flex-col gap-2 w-full">
+            <button
+              onClick={() => {
+                if (isLast) {
+                  setShowOnboarding(false);
+                  trackEvent("tutorial_complete");
+                } else {
+                  setOnboardStep(onboardStep + 1);
+                }
+              }}
+              className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase active:scale-95 transition-all"
+              style={{ backgroundColor: step.accent, color: "#0f0f0f" }}
+            >
+              {isLast ? "НАЧАТЬ" : "ДАЛЬШЕ"}
+            </button>
+            {!isLast && (
+              <button
+                onClick={() => { setShowOnboarding(false); trackEvent("tutorial_skip", { step: onboardStep }); }}
+                className="font-rubik text-xs text-center active:opacity-60 py-2"
+                style={{ color: "rgba(255,255,255,0.3)" }}
+              >
+                Пропустить
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ═══════════════════ SCREENS ═══════════════════
 
   // ── HOME ──
@@ -1619,6 +1737,16 @@ export default function Index() {
         {["top-4 left-4 border-l-2 border-t-2", "top-4 right-4 border-r-2 border-t-2", "bottom-4 left-4 border-l-2 border-b-2", "bottom-4 right-4 border-r-2 border-b-2"].map((cls, i) => (
           <div key={i} className={`absolute w-6 h-6 ${cls}`} style={{ borderColor: "rgba(192,57,43,0.35)" }} />
         ))}
+
+        {/* Toggles: звук/вибрация (плавающая панелька в правом верхнем углу) */}
+        <div className="absolute top-3 right-3 flex items-center gap-1 z-10">
+          <button onClick={toggleSound} className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90" style={{ backgroundColor: "rgba(255,255,255,0.05)" }} aria-label="Звук">
+            <Icon name={soundOn ? "Volume2" : "VolumeX"} size={14} style={{ color: soundOn ? "#f5f5f5" : "rgba(255,255,255,0.3)" }} />
+          </button>
+          <button onClick={toggleVibration} className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90" style={{ backgroundColor: "rgba(255,255,255,0.05)" }} aria-label="Вибрация">
+            <Icon name={vibrationOn ? "Vibrate" : "VibrateOff"} size={14} style={{ color: vibrationOn ? "#f5f5f5" : "rgba(255,255,255,0.3)" }} />
+          </button>
+        </div>
 
         {/* Stats */}
         <div className="w-full flex items-center justify-between animate-fade-in">
@@ -1658,11 +1786,12 @@ export default function Index() {
           </span>
         </div>
         {player && ((player as {today_matches?: number}).today_matches ?? 0) > 0 && (
-          <div className="flex items-center gap-3" style={{ color: "rgba(255,255,255,0.25)" }}>
-            <span className="font-rubik" style={{ fontSize: "clamp(9px, 2.5vw, 11px)" }}>
+          <div className="flex items-center gap-3 px-3 py-1.5 border" style={{ borderColor: "rgba(0,230,118,0.25)", backgroundColor: "rgba(0,230,118,0.06)" }}>
+            <Icon name="Zap" size={12} style={{ color: "#00e676" }} />
+            <span className="font-rubik tracking-wider" style={{ fontSize: "clamp(9px, 2.5vw, 11px)", color: "rgba(255,255,255,0.55)" }}>
               Сегодня: {(player as {today_matches?: number}).today_matches ?? 0} матчей
               {(player as {today_best_reaction?: number}).today_best_reaction
-                ? ` · лучший ${(player as {today_best_reaction?: number}).today_best_reaction} мс`
+                ? <> · лучший <span style={{ color: "#00e676", fontWeight: 700 }}>{(player as {today_best_reaction?: number}).today_best_reaction} мс</span></>
                 : ""}
             </span>
           </div>
@@ -2025,7 +2154,7 @@ export default function Index() {
             </div>
             <div className="w-px h-8" style={{ backgroundColor: "rgba(255,255,255,0.07)" }} />
             <div className="flex flex-col items-center gap-1">
-              <span className="font-oswald text-xl font-bold" style={{ color: result.coinsEarned >= 0 ? "#f39c12" : "#e74c3c" }}>{result.coinsEarned > 0 ? "+" : ""}{result.coinsEarned}🪙</span>
+              <span className="font-oswald text-xl font-bold inline-block" style={{ color: result.coinsEarned >= 0 ? "#f39c12" : "#e74c3c", animation: result.coinsEarned > 0 ? "number-pop 0.6s ease-out" : undefined }}>{result.coinsEarned > 0 ? "+" : ""}{result.coinsEarned}🪙</span>
               <span className="font-rubik tracking-widest uppercase" style={{ fontSize: "clamp(9px, 2.5vw, 12px)", color: "rgba(255,255,255,0.2)" }}>монет</span>
             </div>
             {result.newStreak > 0 && (
@@ -2273,8 +2402,9 @@ export default function Index() {
         {/* Top list */}
         <div className="flex-1 overflow-y-auto px-6 pb-8">
           {loadingLB ? (
-            <div className="flex justify-center pt-8">
-              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.3)" }}>Загрузка…</span>
+            <div className="flex flex-col items-center justify-center gap-3 pt-12">
+              <Icon name="Loader2" size={28} className="animate-spin" style={{ color: "#c0392b" }} />
+              <span className="font-rubik text-xs uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.3)" }}>Загрузка</span>
             </div>
           ) : leaderboard.length === 0 ? (
             <div className="flex flex-col items-center pt-12 gap-3">
@@ -2630,14 +2760,22 @@ export default function Index() {
           )}
 
           {/* Шаринг */}
-          <div className="w-full flex flex-col gap-3">
+          <div className="w-full flex flex-col gap-2">
+            <button
+              onClick={shareDuelTelegram}
+              className="w-full h-12 font-oswald text-sm tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+              style={{ backgroundColor: "#229ED9", color: "#fff" }}
+            >
+              <Icon name="Send" size={14} />
+              ОТПРАВИТЬ В TELEGRAM
+            </button>
             <button
               onClick={shareDuel}
-              className="w-full h-12 font-oswald text-sm tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
-              style={{ backgroundColor: "rgba(255,255,255,0.07)", color: "#f5f5f5", border: "1px solid rgba(255,255,255,0.12)" }}
+              className="w-full h-11 font-oswald text-xs tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+              style={{ backgroundColor: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.12)" }}
             >
-              <Icon name="Share2" size={14} />
-              {duelCopied ? "СКОПИРОВАНО!" : "ПОДЕЛИТЬСЯ ССЫЛКОЙ"}
+              <Icon name="Share2" size={13} />
+              {duelCopied ? "СКОПИРОВАНО!" : "Поделиться или скопировать"}
             </button>
           </div>
         </div>
