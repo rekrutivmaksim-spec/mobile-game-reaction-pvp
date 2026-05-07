@@ -971,7 +971,7 @@ export default function Index() {
     }
 
     const startedAt = Date.now();
-    const MAX_WAIT_MS = 5000;
+    const MAX_WAIT_MS = 12000;
 
     const fallbackToBot = () => {
       // Очищаем таймеры поллинга и выходим из очереди
